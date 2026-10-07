@@ -212,7 +212,7 @@ function stateView(session, actor, ttlSeconds) {
     crownPlayerId: session.crownPlayerId,
     firstCompletedPlayerId: session.firstCompletedPlayerId,
     finalRound: Boolean(session.finalRound),
-    me: playerView(sesssion, actor, actor),
+    me: playerView(session, actor, actor),
     isHost: actor.id === session.hostPlayerId,
     canAdminPublicState: canAdminPublicState(session, actor),
     players: sortedPlayers(session).map((p) => playerView(session, p, actor)),
@@ -563,7 +563,11 @@ async function main() {
   app.listen(PORT, '0.0.0.0', () => console.log(`Citadella listening on ${PORT} at ${BASE_PATH || '/'}`));
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}
+
+module.exports = { stateView };
