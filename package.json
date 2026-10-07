@@ -1,0 +1,19 @@
+{
+  "name": "citadella-table-assistant",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Mobile Citadella table assistant with secret character drafting and Redis sessions",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test",
+    "check": "node --check server.js && node --check game.js && node --check public/app.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "redis": "^4.7.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
