@@ -47,6 +47,9 @@ const errors = {
   bishop_protected: 'A Püspök kerületei ebben a körben védettek.',
   keep_protected: 'A Keep kerületet a Hadúr nem pusztíthatja el.',
   district_deck_empty: 'Elfogyott a kerületpakli.',
+  district_ability_unavailable: 'Ez a kerülethatás most nem használható.',
+  district_ability_already_used: 'Ezt a kerülethatást ebben a körben már használtad.',
+  invalid_district_ability: 'Ismeretlen kerülethatás.',
   internal_error: 'Szerverhiba történt.'
 };
 
@@ -124,7 +127,8 @@ function characterById(characterId) {
 
 function renderTopbar() {
   if (!state) return '';
-  return `<div class="topbar"><div class="brand"><p class="eyebrow">${escapeHtml(phaseLabel(state.phase))} · ${state.round ? `${state.round}. kör` : 'előkészület'}</p><h1>Citadella</h1></div><div class="topbar-meta"><span class="badge">pakli: ${state.deckCount ?? '—'}</span><div class="code-badge" title="Szobakód">${escapeHtml(state.code)}</div></div></div>`;
+  const canFinish = state.isHost && !['lobby', 'finished'].includes(state.phase);
+  return `<div class="topbar"><div class="brand"><p class="eyebrow">${escapeHtml(phaseLabel(state.phase))} · ${state.round ? `${state.round}. kör` : 'előkészület'}</p><h1>Citadella</h1></div><div class="topbar-meta"><span class="badge">pakli: ${state.deckCount ?? '—'}</span><div class="code-badge" title="Szobakód">${escapeHtml(state.code)}</div>${canFinish ? '<button class="danger mini-action" data-action="finish-game">Játék befejezése</button>' : ''}<button class="ghost mini-action" data-action="leave-session">Kilépés / új szoba</button></div></div>`;
 }
 
 function roleCard() {
@@ -163,13 +167,17 @@ function handCard(card, options = {}) {
   const type = typeInfo(card.type);
   const effective = cardCost(card);
   const costLabel = effective === card.cost ? String(card.cost) : `${effective} <s>${card.cost}</s>`;
-  const action = options.build
-    ? `<button data-action="build-card" data-card="${card.cardId}" ${options.disabled ? 'disabled' : ''}>Megépítem · ${effective} 🪙</button>`
-    : '';
-  const checkbox = options.selectable
-    ? `<label class="card-check"><input type="checkbox" name="magician-card" value="${card.cardId}"> újrahúzom</label>`
-    : '';
-  return `<article class="district-card"><div class="district-card-head"><span class="type-dot type-${escapeHtml(type.id)}">${escapeHtml(type.symbol)}</span><div><strong>${escapeHtml(card.name)}</strong><span class="card-type">${escapeHtml(type.label)}</span></div><span class="card-cost">${costLabel} 🪙</span></div>${card.effect ? `<p class="card-effect">${escapeHtml(card.effect)}</p>` : ''}${checkbox}${action}</article>`;
+  const controls = [];
+  if (options.selectable) {
+    controls.push(`<label class="compact-check"><input type="checkbox" name="magician-card" value="${card.cardId}"> csere</label>`);
+  }
+  if (options.keep) {
+    controls.push(`<button data-action="keep-drawn-card" data-card="${card.cardId}">Ezt tartom meg</button>`);
+  }
+  if (options.build) {
+    controls.push(`<button data-action="build-card" data-card="${card.cardId}" ${options.disabled ? 'disabled' : ''}>Megépítem · ${effective} 🪙</button>`);
+  }
+  return `<div class="district-row"><span class="type-dot type-${escapeHtml(type.id)}">${escapeHtml(type.symbol)}</span><div class="district-row-main"><div class="district-row-title"><strong>${escapeHtml(card.name)}</strong><span class="badge">${escapeHtml(type.label)}</span><span class="row-cost">${costLabel} 🪙</span></div>${card.effect ? `<div class="row-effect">${escapeHtml(card.effect)}</div>` : ''}</div>${controls.length ? `<div class="row-actions">${controls.join('')}</div>` : ''}</div>`;
 }
 
 function handPanel({ build = false, selectable = false } = {}) {
@@ -181,7 +189,7 @@ function handPanel({ build = false, selectable = false } = {}) {
     !action?.pendingDraw?.length &&
     action.builds < action.buildLimit;
 
-  return `<section class="panel stack hand-panel"><div class="section-head"><div><p class="eyebrow">Titkos</p><h2>A kezed · ${hand.length} lap</h2></div><span class="badge">csak te látod</span></div>${hand.length ? `<div class="hand-grid">${hand.map((card) => handCard(card, {
+  return `<section class="panel stack hand-panel"><div class="section-head"><div><p class="eyebrow">Titkos</p><h2>A kezed · ${hand.length} lap</h2></div><span class="badge">csak te látod</span></div>${hand.length ? `<div class="hand-list">${hand.map((card) => handCard(card, {
     build: canBuildNow,
     selectable,
     disabled: cardCost(card) > state.me.gold
@@ -219,7 +227,7 @@ function resourcePanel() {
   if (state.turn?.activePlayerId !== state.me.id) return '';
   const action = state.turn.action;
   if (action.pendingDraw?.length) {
-    return `<section class="panel stack action-panel"><div><p class="eyebrow">Nyersanyag</p><h2>Válassz 1 kerületlapot</h2><p class="muted">A másik lap a pakli aljára kerül.</p></div><div class="hand-grid">${action.pendingDraw.map((card) => `<article class="district-card">${handCard(card).replace(/^<article class="district-card">|<\/article>$/g, '')}<button data-action="keep-drawn-card" data-card="${card.cardId}">Ezt tartom meg</button></article>`).join('')}</div></section>`;
+    return `<section class="panel stack action-panel"><div><p class="eyebrow">Nyersanyag</p><h2>Válassz 1 kerületlapot</h2><p class="muted">A másik lap a pakli aljára kerül.</p></div><div class="hand-list">${action.pendingDraw.map((card) => handCard(card, { keep: true })).join('')}</div></section>`;
   }
   if (action.resourceGathered) {
     return '<section class="panel compact-panel"><span class="badge good">✓ Nyersanyag kiválasztva</span></section>';
@@ -318,13 +326,43 @@ function abilityPanel() {
   return '';
 }
 
+function districtAbilityPanel() {
+  if (state.turn?.activePlayerId !== state.me.id) return '';
+  const action = state.turn.action;
+  if (!action?.resourceGathered || action.pendingDraw?.length) return '';
+
+  const builtIds = new Set((state.me.built || []).map((district) => district.id));
+  const uses = action.districtUses || {};
+  const blocks = [];
+
+  if (builtIds.has('laboratory')) {
+    if (uses.laboratory) {
+      blocks.push('<div class="district-ability-row"><strong>Laboratórium</strong><span class="badge good">✓ használva</span></div>');
+    } else if ((state.me.hand || []).length) {
+      const options = state.me.hand.map((card) => `<option value="${card.cardId}">${escapeHtml(card.name)} (${card.cost} 🪙)</option>`).join('');
+      blocks.push(`<div class="district-ability-row"><div><strong>Laboratórium</strong><div class="muted small-text">1 kézlap eldobása → 2 arany</div></div><div class="inline-control"><select id="laboratory-card">${options}</select><button class="secondary" data-action="use-laboratory">Használom</button></div></div>`);
+    }
+  }
+
+  if (builtIds.has('smithy')) {
+    if (uses.smithy) {
+      blocks.push('<div class="district-ability-row"><strong>Kovácsműhely</strong><span class="badge good">✓ használva</span></div>');
+    } else {
+      blocks.push(`<div class="district-ability-row"><div><strong>Kovácsműhely</strong><div class="muted small-text">2 arany → 3 kerületlap</div></div><button class="secondary" data-action="use-smithy" ${state.me.gold < 2 ? 'disabled' : ''}>Használom</button></div>`);
+    }
+  }
+
+  if (!blocks.length) return '';
+  return `<section class="panel stack ability-panel"><div><p class="eyebrow">Egyedi kerületek</p><h2>Használható hatások</h2></div><div class="district-ability-list">${blocks.join('')}</div></section>`;
+}
+
 function renderTurns() {
   helpButton.classList.remove('hidden');
   const active = state.players.find((player) => player.id === state.turn.activePlayerId);
   const selfActive = state.turn.activePlayerId === state.me.id;
   const canEnd = selfActive && state.turn.action.resourceGathered && !state.turn.action.pendingDraw?.length;
 
-  app.innerHTML = `${renderTopbar()}${roleCard()}${announcementsPanel()}<section class="panel status-banner"><div><p class="eyebrow">${state.finalRound ? 'Utolsó kör · ' : ''}${state.turn.index + 1}/${state.turn.total}</p><h2>${escapeHtml(active?.name || '—')} · ${state.turn.character.rank}. ${escapeHtml(state.turn.character.name)}</h2><p class="muted">${escapeHtml(state.turn.character.short)}</p></div>${selfActive ? `<button data-action="end-turn" ${canEnd ? '' : 'disabled'}>Kör vége</button>` : ''}</section>${resourcePanel()}${abilityPanel()}${handPanel({ build: true })}<div class="table-grid">${state.players.map(playerCard).join('')}</div>`;
+  app.innerHTML = `${renderTopbar()}${roleCard()}${announcementsPanel()}<section class="panel status-banner"><div><p class="eyebrow">${state.finalRound ? 'Utolsó kör · ' : ''}${state.turn.index + 1}/${state.turn.total}</p><h2>${escapeHtml(active?.name || '—')} · ${state.turn.character.rank}. ${escapeHtml(state.turn.character.name)}</h2><p class="muted">${escapeHtml(state.turn.character.short)}</p></div>${selfActive ? `<button data-action="end-turn" ${canEnd ? '' : 'disabled'}>Kör vége</button>` : ''}</section>${resourcePanel()}${abilityPanel()}${districtAbilityPanel()}${handPanel({ build: true })}<div class="table-grid">${state.players.map(playerCard).join('')}</div>`;
 }
 
 function renderFinished() {
@@ -338,7 +376,7 @@ function renderFinished() {
       return `<div class="player-row score-line ${winner ? 'winner' : ''}"><strong>${winner ? '♛ ' : ''}${escapeHtml(player.name)}</strong><span class="score-number optional" title="Kerületek">${score.districtPoints}</span><span class="score-number optional" title="Típusbónusz">+${score.diversityBonus}</span><span class="score-number optional" title="Befejezés">+${score.completionBonus}</span><span class="score-number" title="Egyedi kerületek kézzel megadott bónusza">${score.manualBonus >= 0 ? '+' : ''}${score.manualBonus}</span><strong class="score-number">${score.total}</strong></div>`;
     }).join('');
   const myScore = byId.get(state.me.id);
-  app.innerHTML = `${renderTopbar()}${handPanel()}<section class="panel stack"><h2>Eredmény</h2><p class="muted">Az alap kerületpontok, az ötféle típus és a város befejezési bónusza automatikus. A még nem automatizált egyedi kerülethatások pontjait add meg kézzel.</p><div class="score-list">${rows}</div><form id="bonus-form" class="actions"><label>Egyedi kerületek bónuszpontja<input name="points" type="number" min="-999" max="999" value="${myScore?.manualBonus || 0}"></label><button type="submit">Saját bónusz mentése</button></form>${state.isHost ? '<div class="actions"><button data-action="start">Új játék ugyanebben a szobában</button></div>' : ''}</section>`;
+  app.innerHTML = `${renderTopbar()}${handPanel()}<section class="panel stack"><h2>Eredmény</h2><p class="muted">Az alap kerületpontok, az ötféle típus és a város befejezési bónusza automatikus. A még nem automatizált egyedi kerülethatások pontjait add meg kézzel.</p><div class="score-list">${rows}</div><form id="bonus-form" class="actions"><label>Egyedi kerületek bónuszpontja<input name="points" type="number" min="-999" max="999" value="${myScore?.manualBonus || 0}"></label><button type="submit">Saját bónusz mentése</button></form>${state.isHost ? '<div class="actions"><button data-action="start">Új játék ugyanebben a szobában</button><button class="secondary" data-action="leave-session">Új szoba létrehozása</button></div>' : '<div class="actions"><button class="secondary" data-action="leave-session">Kilépés / új szoba</button></div>'}</section>`;
 }
 
 function render() {
@@ -407,6 +445,14 @@ async function joinSession(form) {
   startPolling();
 }
 
+function leaveSession() {
+  stopPolling();
+  saveAuth(null);
+  state = null;
+  history.replaceState(null, '', `${BASE}/`);
+  renderHome();
+}
+
 async function post(path, body = {}) {
   await api(path, { method: 'POST', body: JSON.stringify(body) });
   await refresh();
@@ -437,7 +483,13 @@ app.addEventListener('click', async (event) => {
   const action = button.dataset.action;
 
   try {
-    if (action === 'start') {
+    if (action === 'leave-session') {
+      if (!confirm('Kilépsz ebből a szobából? A böngésző nem fog automatikusan visszalépni ide.')) return;
+      leaveSession();
+    } else if (action === 'finish-game') {
+      if (!confirm('Biztosan befejezed a játékot? Mindenki a végeredmény képernyőre kerül.')) return;
+      await post(`/session/${state.code}/finish`);
+    } else if (action === 'start') {
       await post(`/session/${state.code}/start`);
     } else if (action === 'crown') {
       await post(`/session/${state.code}/crown`, { playerId: button.dataset.player });
@@ -476,6 +528,17 @@ app.addEventListener('click', async (event) => {
       });
     } else if (action === 'ability-income') {
       await post(`/session/${state.code}/turn/ability`, { action: 'income' });
+    } else if (action === 'use-laboratory') {
+      const select = document.getElementById('laboratory-card');
+      if (!select?.value) throw new Error('cards_required');
+      await post(`/session/${state.code}/turn/district-ability`, {
+        districtId: 'laboratory',
+        cardId: select.value
+      });
+    } else if (action === 'use-smithy') {
+      await post(`/session/${state.code}/turn/district-ability`, {
+        districtId: 'smithy'
+      });
     } else if (action === 'warlord-destroy') {
       if (!confirm('Biztosan elpusztítod ezt a kerületet?')) return;
       await post(`/session/${state.code}/turn/ability`, {
