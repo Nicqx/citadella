@@ -137,3 +137,64 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   .hand-grid { grid-template-columns: 1fr; }
   .district-card { padding: 11px; }
 }
+
+
+/* Compact hand rows and session controls */
+.mini-action { min-height: 34px; padding: 6px 9px; font-size: .76rem; }
+.hand-list { display: grid; gap: 7px; }
+.district-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 9px;
+  align-items: center;
+  padding: 9px 10px;
+  border: 1px solid #3b4f69;
+  border-radius: 11px;
+  background: #111a27;
+}
+.district-row .type-dot {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: inline-grid;
+  place-items: center;
+  color: #10141b;
+  font-size: .68rem;
+  font-weight: 1000;
+}
+.district-row-main { min-width: 0; display: grid; gap: 4px; }
+.district-row-title { display: flex; gap: 7px; align-items: center; flex-wrap: wrap; min-width: 0; }
+.district-row-title strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-cost { color: var(--gold); font-weight: 900; white-space: nowrap; }
+.row-cost s { color: var(--muted); font-weight: 600; }
+.row-effect { color: #c7d2e0; font-size: .82rem; line-height: 1.35; }
+.row-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.row-actions button { min-height: 34px; padding: 6px 9px; font-size: .78rem; }
+.compact-check { display: flex; grid-template-columns: auto auto; align-items: center; gap: 5px; }
+.compact-check input { width: 18px; min-height: 18px; }
+.district-ability-list { display: grid; gap: 8px; }
+.district-ability-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 10px;
+  border: 1px solid #394d66;
+  border-radius: 10px;
+  background: #121b27;
+}
+.inline-control { display: flex; gap: 7px; align-items: center; }
+.inline-control select { min-width: 180px; min-height: 38px; padding: 7px 9px; }
+.inline-control button, .district-ability-row > button { min-height: 38px; padding: 7px 10px; }
+.small-text { font-size: .78rem; margin-top: 3px; }
+
+@media (max-width: 720px) {
+  .topbar-meta { max-width: none; width: 100%; justify-content: flex-start; }
+  .topbar { flex-wrap: wrap; }
+  .district-row { grid-template-columns: auto minmax(0, 1fr); }
+  .row-actions { grid-column: 1 / -1; justify-content: stretch; }
+  .row-actions button { flex: 1 1 auto; }
+  .district-ability-row { align-items: stretch; flex-direction: column; }
+  .inline-control { align-items: stretch; flex-direction: column; }
+  .inline-control select { min-width: 0; width: 100%; }
+}
