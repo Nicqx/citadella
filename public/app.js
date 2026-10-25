@@ -23,12 +23,30 @@ const errors = {
   auth_failed: 'A helyi játékazonosító nem érvényes ehhez a szobához.',
   supported_player_count: 'Ez a verzió 4–8 játékost támogat.',
   host_only: 'Ezt csak a házigazda teheti meg.',
-  active_player_only: 'Ezt most csak az aktív játékos vagy a házigazda teheti meg.',
+  active_player_only: 'Ezt most csak az aktív játékos teheti meg.',
   not_current_drafter: 'Most nem te választasz karaktert.',
   character_unavailable: 'Ez a karakter már nem választható.',
   invalid_gold_total: 'Ennyi arany nem állítható be.',
   game_not_active: 'A játék még nem fut.',
   turn_not_active: 'Nincs aktív kör.',
+  resource_required: 'Előbb válassz: 2 arany vagy kerületlap-húzás.',
+  resource_already_gathered: 'Ebben a körben már választottál nyersanyagot.',
+  draw_choice_required: 'Előbb válaszd ki, melyik húzott kerületlapot tartod meg.',
+  draw_choice_not_active: 'Most nincs folyamatban lapválasztás.',
+  invalid_draw_choice: 'Ez a lap nem választható.',
+  build_limit_reached: 'Ebben a körben már elérted az építési korlátot.',
+  district_not_in_hand: 'Ez a kerületlap nincs a kezedben.',
+  duplicate_district: 'Ilyen nevű kerület már van a városodban.',
+  not_enough_gold: 'Nincs elég aranyad ehhez.',
+  ability_already_used: 'Ezt a képességet ebben a körben már használtad.',
+  invalid_character_target: 'Ez a karakter most nem választható célpontnak.',
+  invalid_player_target: 'Ez a játékos most nem választható célpontnak.',
+  invalid_ability_action: 'Ez a képességművelet nem használható.',
+  cards_required: 'Válassz legalább egy kerületlapot.',
+  completed_city_protected: 'Befejezett város kerülete nem pusztítható el.',
+  bishop_protected: 'A Püspök kerületei ebben a körben védettek.',
+  keep_protected: 'A Keep kerületet a Hadúr nem pusztíthatja el.',
+  district_deck_empty: 'Elfogyott a kerületpakli.',
   internal_error: 'Szerverhiba történt.'
 };
 
@@ -74,20 +92,39 @@ async function api(path, options = {}) {
 }
 
 function escapeHtml(value) {
-  return String(value ?? '').replace(/[&<>'"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[ch]));
+  return String(value ?? '').replace(/[&<>'"]/g, (ch) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    "'": '&#39;',
+    '"': '&quot;'
+  }[ch]));
 }
 
 function phaseLabel(phase) {
-  return ({ lobby: 'Váróterem', draft: 'Karakterválasztás', turns: 'Játékkör', finished: 'Játék vége' })[phase] || phase;
+  return ({
+    lobby: 'Váróterem',
+    draft: 'Karakterválasztás',
+    turns: 'Játékkör',
+    finished: 'Játék vége'
+  })[phase] || phase;
 }
 
 function typeInfo(type) {
-  return state?.districtTypes?.find((item) => item.id === type) || { id: type, label: type, symbol: '?' };
+  return state?.districtTypes?.find((item) => item.id === type) || {
+    id: type,
+    label: type,
+    symbol: '?'
+  };
+}
+
+function characterById(characterId) {
+  return state?.characters?.find((character) => character.id === characterId) || null;
 }
 
 function renderTopbar() {
   if (!state) return '';
-  return `<div class="topbar"><div class="brand"><p class="eyebrow">${escapeHtml(phaseLabel(state.phase))} · ${state.round ? `${state.round}. kör` : 'előkészület'}</p><h1>Citadella</h1></div><div class="code-badge" title="Szobakód">${escapeHtml(state.code)}</div></div>`;
+  return `<div class="topbar"><div class="brand"><p class="eyebrow">${escapeHtml(phaseLabel(state.phase))} · ${state.round ? `${state.round}. kör` : 'előkészület'}</p><h1>Citadella</h1></div><div class="topbar-meta"><span class="badge">pakli: ${state.deckCount ?? '—'}</span><div class="code-badge" title="Szobakód">${escapeHtml(state.code)}</div></div></div>`;
 }
 
 function roleCard() {
@@ -99,68 +136,209 @@ function roleCard() {
 function renderHome() {
   helpButton.classList.add('hidden');
   const code = requestedCode();
-  app.innerHTML = `<section class="hero"><div class="brand"><p class="eyebrow">Játékszoba</p><h1>Citadella</h1><p class="muted">Telefonos asztal és karaktersegédlet. A kerületlapok maradhatnak fizikailag az asztalon; az app a nyílt állapotot, a karakterválasztást és a köröket kezeli.</p></div><div class="grid-2"><form id="create-form" class="panel stack"><h2>Új játék</h2><label>Név<input name="name" maxlength="32" autocomplete="name" required></label><button type="submit">Szoba létrehozása</button><p class="muted">4–8 játékos, ötjegyű szobakóddal.</p></form><form id="join-form" class="panel stack"><h2>Csatlakozás</h2><label>Név<input name="name" maxlength="32" autocomplete="name" required></label><label>Szobakód<input name="code" inputmode="numeric" pattern="[0-9]{5}" maxlength="5" value="${escapeHtml(code)}" required></label><button type="submit">Belépés</button></form></div></section>`;
+  app.innerHTML = `<section class="hero"><div class="brand"><p class="eyebrow">Játékszoba</p><h1>Citadella</h1><p class="muted">Telefonos Citadella-asztal: titkos karakterválasztás, saját kerületkéz, arany, építés és kattintható karakterképességek.</p></div><div class="grid-2"><form id="create-form" class="panel stack"><h2>Új játék</h2><label>Név<input name="name" maxlength="32" autocomplete="name" required></label><button type="submit">Szoba létrehozása</button><p class="muted">4–8 játékos, ötjegyű szobakóddal.</p></form><form id="join-form" class="panel stack"><h2>Csatlakozás</h2><label>Név<input name="name" maxlength="32" autocomplete="name" required></label><label>Szobakód<input name="code" inputmode="numeric" pattern="[0-9]{5}" maxlength="5" value="${escapeHtml(code)}" required></label><button type="submit">Belépés</button></form></div></section>`;
 }
 
 function lobbyRow(player, index) {
   const crowned = player.isCrowned ? '<span class="badge crown">♛ korona</span>' : '';
   const host = player.isHost ? '<span class="badge">házigazda</span>' : '';
-  const controls = state.isHost ? `<div class="actions"><button class="ghost" data-action="move-up" data-player="${player.id}" ${index === 0 ? 'disabled' : ''}>↑</button><button class="ghost" data-action="move-down" data-player="${player.id}" ${index === state.players.length - 1 ? 'disabled' : ''}>↓</button><button class="secondary" data-action="crown" data-player="${player.id}">♛</button></div>` : '';
+  const controls = state.isHost
+    ? `<div class="actions"><button class="ghost" data-action="move-up" data-player="${player.id}" ${index === 0 ? 'disabled' : ''}>↑</button><button class="ghost" data-action="move-down" data-player="${player.id}" ${index === state.players.length - 1 ? 'disabled' : ''}>↓</button><button class="secondary" data-action="crown" data-player="${player.id}">♛</button></div>`
+    : '';
   return `<div class="player-row"><div><strong>${escapeHtml(player.name)}</strong><div class="meta">${host}${crowned}</div></div>${controls}</div>`;
 }
 
 function renderLobby() {
   helpButton.classList.remove('hidden');
   const countOk = state.players.length >= 4 && state.players.length <= 8;
-  app.innerHTML = `${renderTopbar()}<div class="grid-2"><section class="panel stack"><div><h2>Játékosok (${state.players.length}/8)</h2><p class="muted">A sorrend az asztal körüli ülésrendet jelenti. A koronát annak add, aki az első karaktert választja.</p></div><div class="lobby-list">${state.players.map(lobbyRow).join('')}</div>${state.isHost ? `<button data-action="start" ${countOk ? '' : 'disabled'}>Játék indítása</button>${countOk ? '' : '<p class="notice">Az induláshoz 4–8 játékos kell.</p>'}` : '<p class="muted">A házigazda indítja a játékot.</p>'}</section><section class="panel stack"><h2>Hogyan használjátok?</h2><p>A karaktereket az app titokban osztja és a rangjuk szerint vezeti a köröket. Az arany és a megépített kerületek mindenkinél látszanak.</p><p>A kerületlapokat nem kell digitalizálni: építéskor add meg a nevét, típusát és költségét. Így a különleges lapok szövegét továbbra is a fizikai kártyáról használjátok.</p><p class="muted">A ? gombon mindig eléred a játékban lévő karakterek képességeit.</p></section></div>`;
+  app.innerHTML = `${renderTopbar()}<div class="grid-2"><section class="panel stack"><div><h2>Játékosok (${state.players.length}/8)</h2><p class="muted">A sorrend az asztal körüli ülésrendet jelenti. A koronát annak add, aki először választ karaktert.</p></div><div class="lobby-list">${state.players.map(lobbyRow).join('')}</div>${state.isHost ? `<button data-action="start" ${countOk ? '' : 'disabled'}>Játék indítása</button>${countOk ? '' : '<p class="notice">Az induláshoz 4–8 játékos kell.</p>'}` : '<p class="muted">A házigazda indítja a játékot.</p>'}</section><section class="panel stack"><h2>Digitális kerületlapok</h2><p>Indításkor mindenki 4 titkos kerületlapot és 2 aranyat kap. A saját lapjaid csak a te telefonodon látszanak; a többieknél csak a kézben lévő lapok száma nyilvános.</p><p>A körödben az app vezeti a 2 arany / 2 lapból 1 választást és a kézből történő építést is.</p><p class="muted">A ? gombon mindig eléred a karakterek részletes képességeit.</p></section></div>`;
+}
+
+function cardCost(card) {
+  const hasFactory = state?.me?.built?.some((district) => district.id === 'factory');
+  return Math.max(0, Number(card.cost || 0) - (hasFactory && card.type === 'unique' && card.id !== 'factory' ? 1 : 0));
+}
+
+function handCard(card, options = {}) {
+  const type = typeInfo(card.type);
+  const effective = cardCost(card);
+  const costLabel = effective === card.cost ? String(card.cost) : `${effective} <s>${card.cost}</s>`;
+  const action = options.build
+    ? `<button data-action="build-card" data-card="${card.cardId}" ${options.disabled ? 'disabled' : ''}>Megépítem · ${effective} 🪙</button>`
+    : '';
+  const checkbox = options.selectable
+    ? `<label class="card-check"><input type="checkbox" name="magician-card" value="${card.cardId}"> újrahúzom</label>`
+    : '';
+  return `<article class="district-card"><div class="district-card-head"><span class="type-dot type-${escapeHtml(type.id)}">${escapeHtml(type.symbol)}</span><div><strong>${escapeHtml(card.name)}</strong><span class="card-type">${escapeHtml(type.label)}</span></div><span class="card-cost">${costLabel} 🪙</span></div>${card.effect ? `<p class="card-effect">${escapeHtml(card.effect)}</p>` : ''}${checkbox}${action}</article>`;
+}
+
+function handPanel({ build = false, selectable = false } = {}) {
+  const hand = state?.me?.hand || [];
+  const action = state?.turn?.action;
+  const canBuildNow = build &&
+    state.turn?.activePlayerId === state.me.id &&
+    action?.resourceGathered &&
+    !action?.pendingDraw?.length &&
+    action.builds < action.buildLimit;
+
+  return `<section class="panel stack hand-panel"><div class="section-head"><div><p class="eyebrow">Titkos</p><h2>A kezed · ${hand.length} lap</h2></div><span class="badge">csak te látod</span></div>${hand.length ? `<div class="hand-grid">${hand.map((card) => handCard(card, {
+    build: canBuildNow,
+    selectable,
+    disabled: cardCost(card) > state.me.gold
+  })).join('')}</div>` : '<p class="muted">Nincs kerületlap a kezedben.</p>'}</section>`;
 }
 
 function renderDraft() {
   helpButton.classList.remove('hidden');
-  const current = state.players.find((p) => p.id === state.draft.currentPlayerId);
+  const current = state.players.find((player) => player.id === state.draft.currentPlayerId);
   const myTurn = state.draft.currentPlayerId === state.me.id;
   const options = state.draft.options.map((role) => `<button class="character-option" data-action="choose-character" data-character="${role.id}"><strong>${role.rank}. ${escapeHtml(role.name)}</strong><small>${escapeHtml(role.short)}</small></button>`).join('');
-  const faceUp = state.draft.faceUp.length ? state.draft.faceUp.map((role) => `<span class="badge">${role.rank}. ${escapeHtml(role.name)}</span>`).join('') : '<span class="muted">Nincs képpel felfelé félretett karakter.</span>';
-  app.innerHTML = `${renderTopbar()}${roleCard()}<section class="panel stack"><div class="status-banner"><div><p class="eyebrow">Most választ</p><h2>${escapeHtml(current?.name || '—')}</h2></div><span class="badge">${state.draft.availableCount} lehetőség</span></div><div><p class="eyebrow">Nyíltan félretett karakterek</p><div class="face-up">${faceUp}</div></div>${myTurn ? `<div><p class="eyebrow">Válassz titokban egy karaktert</p><div class="draft-grid">${options}</div></div>` : `<p class="muted">Várj, amíg ${escapeHtml(current?.name || 'a következő játékos')} választ.</p>`}</section>`;
+  const faceUp = state.draft.faceUp.length
+    ? state.draft.faceUp.map((role) => `<span class="badge">${role.rank}. ${escapeHtml(role.name)}</span>`).join('')
+    : '<span class="muted">Nincs képpel felfelé félretett karakter.</span>';
+
+  app.innerHTML = `${renderTopbar()}${roleCard()}${handPanel()}<section class="panel stack"><div class="status-banner"><div><p class="eyebrow">Most választ</p><h2>${escapeHtml(current?.name || '—')}</h2></div><span class="badge">${state.draft.availableCount} lehetőség</span></div><div><p class="eyebrow">Nyíltan félretett karakterek</p><div class="face-up">${faceUp}</div></div>${myTurn ? `<div><p class="eyebrow">Válassz titokban egy karaktert</p><div class="draft-grid">${options}</div></div>` : `<p class="muted">Várj, amíg ${escapeHtml(current?.name || 'a következő játékos')} választ.</p>`}</section>`;
 }
 
-function districtChip(district, player) {
+function districtChip(district) {
   const type = typeInfo(district.type);
-  const canDelete = state.isHost || player.id === state.me.id;
-  return `<span class="district" title="${escapeHtml(type.label)}"><span class="type-dot type-${escapeHtml(type.id)}">${escapeHtml(type.symbol)}</span><span class="name">${escapeHtml(district.name)}</span><span class="cost">${district.cost}${district.beautified ? '+1' : ''}</span>${canDelete ? `<button data-action="delete-district" data-district="${district.id}" aria-label="Kerület törlése">×</button>` : ''}</span>`;
+  const canDelete = state.isHost;
+  return `<span class="district" title="${escapeHtml(district.effect || type.label)}"><span class="type-dot type-${escapeHtml(type.id)}">${escapeHtml(type.symbol)}</span><span class="name">${escapeHtml(district.name)}</span><span class="cost">${district.cost}${district.beautified ? '+1' : ''}</span>${canDelete ? `<button data-action="delete-district" data-district="${district.cardId}" aria-label="Kerület törlése">×</button>` : ''}</span>`;
 }
 
 function playerCard(player) {
   const active = state.turn?.activePlayerId === player.id;
   const role = player.character ? `<span class="badge">${player.character.rank}. ${escapeHtml(player.character.name)}</span>` : '';
-  const controls = state.canAdminPublicState ? `<div class="gold-controls"><button class="ghost" data-action="gold" data-player="${player.id}" data-delta="-2">−2</button><button class="ghost" data-action="gold" data-player="${player.id}" data-delta="-1">−1</button><button class="secondary" data-action="gold" data-player="${player.id}" data-delta="1">+1</button><button class="secondary" data-action="gold" data-player="${player.id}" data-delta="2">+2</button></div>` : '';
-  return `<section class="panel player-card ${active ? 'active' : ''} ${player.id === state.me.id ? 'me' : ''}"><div class="player-head"><div><div class="player-name">${escapeHtml(player.name)}</div><div class="meta">${player.isCrowned ? '<span class="badge crown">♛</span>' : ''}${player.isHost ? '<span class="badge">host</span>' : ''}${role}</div></div><span class="badge">${player.built.length} kerület</span></div><div class="gold-line">🪙 ${player.gold} arany</div>${controls}<div class="districts">${player.built.map((d) => districtChip(d, player)).join('') || '<span class="muted">Még nincs megépített kerület.</span>'}</div></section>`;
+  const controls = state.isHost
+    ? `<div class="gold-controls"><button class="ghost" data-action="gold" data-player="${player.id}" data-delta="-1">−1</button><button class="secondary" data-action="gold" data-player="${player.id}" data-delta="1">+1</button></div>`
+    : '';
+  return `<section class="panel player-card ${active ? 'active' : ''} ${player.id === state.me.id ? 'me' : ''}"><div class="player-head"><div><div class="player-name">${escapeHtml(player.name)}</div><div class="meta">${player.isCrowned ? '<span class="badge crown">♛</span>' : ''}${player.isHost ? '<span class="badge">host</span>' : ''}${role}</div></div><div class="meta"><span class="badge">${player.handCount} kézlap</span><span class="badge">${player.built.length} kerület</span></div></div><div class="gold-line">🪙 ${player.gold} arany</div>${controls}<div class="districts">${player.built.map(districtChip).join('') || '<span class="muted">Még nincs megépített kerület.</span>'}</div></section>`;
 }
 
-function buildForm() {
-  const activeSelf = state.turn?.activePlayerId === state.me.id;
-  if (!activeSelf && !state.isHost) return '';
-  const options = state.districtTypes.map((t) => `<option value="${t.id}">${escapeHtml(t.label)}</option>`).join('');
-  return `<form id="build-form" class="panel build-form"><label>Kerület neve<input name="name" maxlength="48" placeholder="pl. Piac" required></label><label>Típus<select name="type">${options}</select></label><label>Költség<input name="cost" type="number" min="0" max="9" value="1" required></label><button type="submit">Megépítve</button></form>`;
+function resourcePanel() {
+  if (state.turn?.activePlayerId !== state.me.id) return '';
+  const action = state.turn.action;
+  if (action.pendingDraw?.length) {
+    return `<section class="panel stack action-panel"><div><p class="eyebrow">Nyersanyag</p><h2>Válassz 1 kerületlapot</h2><p class="muted">A másik lap a pakli aljára kerül.</p></div><div class="hand-grid">${action.pendingDraw.map((card) => `<article class="district-card">${handCard(card).replace(/^<article class="district-card">|<\/article>$/g, '')}<button data-action="keep-drawn-card" data-card="${card.cardId}">Ezt tartom meg</button></article>`).join('')}</div></section>`;
+  }
+  if (action.resourceGathered) {
+    return '<section class="panel compact-panel"><span class="badge good">✓ Nyersanyag kiválasztva</span></section>';
+  }
+  return `<section class="panel stack action-panel"><div><p class="eyebrow">Kötelező lépés</p><h2>Mit veszel fel?</h2></div><div class="choice-grid"><button data-action="take-resource" data-mode="gold">🪙 2 arany</button><button class="secondary" data-action="take-resource" data-mode="cards">🃏 2 lapból 1</button></div></section>`;
+}
+
+function announcementsPanel() {
+  const killed = characterById(state.roundEffects?.assassinatedCharacterId);
+  const robbed = characterById(state.roundEffects?.thiefTargetCharacterId);
+  if (!killed && !robbed) return '';
+  return `<section class="panel compact-panel announcements">${killed ? `<span class="badge danger-badge">☠ ${escapeHtml(killed.name)}</span>` : ''}${robbed ? `<span class="badge">🗝 Tolvaj célpontja: ${escapeHtml(robbed.name)}</span>` : ''}</section>`;
+}
+
+function targetCharacterButtons(mode) {
+  const roleId = state.turn.character.id;
+  return state.characters
+    .filter((character) => {
+      if (character.id === roleId) return false;
+      if (mode === 'assassin') return character.id !== 'assassin';
+      if (mode === 'thief') {
+        return character.id !== 'assassin' &&
+          character.id !== 'thief' &&
+          character.id !== state.roundEffects?.assassinatedCharacterId;
+      }
+      return false;
+    })
+    .map((character) => `<button class="character-option" data-action="ability-target-character" data-character="${character.id}"><strong>${character.rank}. ${escapeHtml(character.name)}</strong><small>${escapeHtml(character.short)}</small></button>`)
+    .join('');
+}
+
+function warlordTargets() {
+  const cards = [];
+  for (const player of state.players) {
+    for (const district of player.built) {
+      if (district.id === 'keep' || player.built.length >= 7) continue;
+      const cost = Math.max(0, Number(district.cost || 0) - 1);
+      cards.push(`<button class="target-district secondary" data-action="warlord-destroy" data-card="${district.cardId}" ${cost > state.me.gold ? 'disabled' : ''}><strong>${escapeHtml(player.name)} · ${escapeHtml(district.name)}</strong><span>${cost} 🪙</span></button>`);
+    }
+  }
+  return cards.join('') || '<p class="muted">Jelenleg nincs elpusztítható kerület.</p>';
+}
+
+function abilityPanel() {
+  if (state.turn?.activePlayerId !== state.me.id) return '';
+  const role = state.turn.character;
+  const action = state.turn.action;
+
+  if (role.id === 'assassin') {
+    if (action.specialUsed) {
+      const target = characterById(state.roundEffects?.assassinatedCharacterId);
+      return `<section class="panel compact-panel"><strong>☠ Célpont: ${escapeHtml(target?.name || '—')}</strong></section>`;
+    }
+    return `<section class="panel stack ability-panel"><div><p class="eyebrow">Orgyilkos</p><h2>Kit ölsz meg?</h2><p class="muted">Karakterre kattints, nem játékosra. A célpont nem tudja, hogy nála van-e a kiválasztott karakter.</p></div><div class="draft-grid">${targetCharacterButtons('assassin')}</div></section>`;
+  }
+
+  if (role.id === 'thief') {
+    if (action.specialUsed) {
+      const target = characterById(state.roundEffects?.thiefTargetCharacterId);
+      return `<section class="panel compact-panel"><strong>🗝 Célpont: ${escapeHtml(target?.name || '—')}</strong></section>`;
+    }
+    return `<section class="panel stack ability-panel"><div><p class="eyebrow">Tolvaj</p><h2>Kit rabolj ki?</h2><p class="muted">Az Orgyilkos és az általa megölt karakter nem választható.</p></div><div class="draft-grid">${targetCharacterButtons('thief')}</div></section>`;
+  }
+
+  if (role.id === 'magician') {
+    if (action.specialUsed) return '<section class="panel compact-panel"><span class="badge good">✓ A Mágus képessége felhasználva</span></section>';
+    const others = state.players.filter((player) => player.id !== state.me.id)
+      .map((player) => `<button class="secondary" data-action="magician-swap" data-player="${player.id}">Kézcsere: ${escapeHtml(player.name)} (${player.handCount})</button>`).join('');
+    return `<section class="panel stack ability-panel"><div><p class="eyebrow">Mágus</p><h2>Képesség</h2></div><div class="actions">${others}</div><div class="divider"></div><p class="muted">Vagy jelöld ki a saját lapjaid közül, amelyeket a pakli aljára teszel, majd húzz ugyanannyit.</p>${handPanel({ selectable: true }).replace('<section class="panel stack hand-panel">', '<div class="nested-hand stack">').replace(/<\/section>$/, '</div>')}<button class="secondary" data-action="magician-redraw">Kijelöltek újrahúzása</button></section>`;
+  }
+
+  if (['king', 'bishop', 'merchant', 'warlord'].includes(role.id)) {
+    const incomeLabels = {
+      king: 'Nemesi bevétel',
+      bishop: 'Egyházi bevétel',
+      merchant: 'Kereskedelmi bevétel',
+      warlord: 'Katonai bevétel'
+    };
+    const income = action.incomeUsed
+      ? '<span class="badge good">✓ Színbevétel beszedve</span>'
+      : `<button data-action="ability-income">${incomeLabels[role.id]}</button>`;
+    const destruction = role.id === 'warlord'
+      ? `<div class="divider"></div><div><p class="eyebrow">Hadúr</p><h3>Kerület elpusztítása</h3><p class="muted">Egy kerületet az értékénél 1 arannyal olcsóbban pusztíthatsz el. A Püspök és a befejezett város védett.</p></div>${action.destructionUsed ? '<span class="badge good">✓ Pusztítás felhasználva</span>' : `<div class="target-list">${warlordTargets()}</div>`}`
+      : '';
+    return `<section class="panel stack ability-panel"><div><p class="eyebrow">${escapeHtml(role.name)}</p><h2>Karakterképesség</h2></div><div class="actions">${income}</div>${destruction}</section>`;
+  }
+
+  if (role.id === 'architect') {
+    return '<section class="panel compact-panel"><strong>🃏 Az Építész 2 plusz lapját automatikusan megkaptad. Ebben a körben legfeljebb 3 kerületet építhetsz.</strong></section>';
+  }
+
+  if (role.id === 'queen') {
+    return '<section class="panel compact-panel"><strong>♛ A Királynő szomszédsági bónuszát az app automatikusan kezeli.</strong></section>';
+  }
+
+  return '';
 }
 
 function renderTurns() {
   helpButton.classList.remove('hidden');
-  const active = state.players.find((p) => p.id === state.turn.activePlayerId);
+  const active = state.players.find((player) => player.id === state.turn.activePlayerId);
   const selfActive = state.turn.activePlayerId === state.me.id;
-  app.innerHTML = `${renderTopbar()}${roleCard()}<section class="panel status-banner"><div><p class="eyebrow">${state.finalRound ? 'Utolsó kör · ' : ''}${state.turn.index + 1}/${state.turn.total}</p><h2>${escapeHtml(active?.name || '—')} · ${state.turn.character.rank}. ${escapeHtml(state.turn.character.name)}</h2><p class="muted">${escapeHtml(state.turn.character.short)}</p></div>${selfActive || state.isHost ? '<button data-action="end-turn">Kör vége</button>' : ''}</section>${buildForm()}<div class="table-grid">${state.players.map(playerCard).join('')}</div>`;
+  const canEnd = selfActive && state.turn.action.resourceGathered && !state.turn.action.pendingDraw?.length;
+
+  app.innerHTML = `${renderTopbar()}${roleCard()}${announcementsPanel()}<section class="panel status-banner"><div><p class="eyebrow">${state.finalRound ? 'Utolsó kör · ' : ''}${state.turn.index + 1}/${state.turn.total}</p><h2>${escapeHtml(active?.name || '—')} · ${state.turn.character.rank}. ${escapeHtml(state.turn.character.name)}</h2><p class="muted">${escapeHtml(state.turn.character.short)}</p></div>${selfActive ? `<button data-action="end-turn" ${canEnd ? '' : 'disabled'}>Kör vége</button>` : ''}</section>${resourcePanel()}${abilityPanel()}${handPanel({ build: true })}<div class="table-grid">${state.players.map(playerCard).join('')}</div>`;
 }
 
 function renderFinished() {
   helpButton.classList.remove('hidden');
   const byId = new Map(state.scores.map((score) => [score.playerId, score]));
-  const rows = [...state.players].sort((a, b) => (byId.get(b.id)?.total || 0) - (byId.get(a.id)?.total || 0)).map((player) => {
-    const score = byId.get(player.id);
-    const winner = player.id === state.winnerPlayerId;
-    return `<div class="player-row score-line ${winner ? 'winner' : ''}"><strong>${winner ? '♛ ' : ''}${escapeHtml(player.name)}</strong><span class="score-number optional" title="Kerületek">${score.districtPoints}</span><span class="score-number optional" title="Típusbónusz">+${score.diversityBonus}</span><span class="score-number optional" title="Befejezés">+${score.completionBonus}</span><span class="score-number" title="Egyedi kerületek kézzel megadott bónusza">${score.manualBonus >= 0 ? '+' : ''}${score.manualBonus}</span><strong class="score-number">${score.total}</strong></div>`;
-  }).join('');
+  const rows = [...state.players]
+    .sort((a, b) => (byId.get(b.id)?.total || 0) - (byId.get(a.id)?.total || 0))
+    .map((player) => {
+      const score = byId.get(player.id);
+      const winner = player.id === state.winnerPlayerId;
+      return `<div class="player-row score-line ${winner ? 'winner' : ''}"><strong>${winner ? '♛ ' : ''}${escapeHtml(player.name)}</strong><span class="score-number optional" title="Kerületek">${score.districtPoints}</span><span class="score-number optional" title="Típusbónusz">+${score.diversityBonus}</span><span class="score-number optional" title="Befejezés">+${score.completionBonus}</span><span class="score-number" title="Egyedi kerületek kézzel megadott bónusza">${score.manualBonus >= 0 ? '+' : ''}${score.manualBonus}</span><strong class="score-number">${score.total}</strong></div>`;
+    }).join('');
   const myScore = byId.get(state.me.id);
-  app.innerHTML = `${renderTopbar()}<section class="panel stack"><h2>Eredmény</h2><p class="muted">A kerületköltség, az öt típusért járó +3, valamint a város befejezésének bónusza automatikus. Az egyedi kerületek további pontjait add meg kézzel.</p><div class="score-list">${rows}</div><form id="bonus-form" class="actions"><label>Egyedi kerületek bónuszpontja<input name="points" type="number" min="-999" max="999" value="${myScore?.manualBonus || 0}"></label><button type="submit">Saját bónusz mentése</button></form>${state.isHost ? '<div class="actions"><button data-action="start">Új játék ugyanebben a szobában</button></div>' : ''}</section>`;
+  app.innerHTML = `${renderTopbar()}${handPanel()}<section class="panel stack"><h2>Eredmény</h2><p class="muted">Az alap kerületpontok, az ötféle típus és a város befejezési bónusza automatikus. A még nem automatizált egyedi kerülethatások pontjait add meg kézzel.</p><div class="score-list">${rows}</div><form id="bonus-form" class="actions"><label>Egyedi kerületek bónuszpontja<input name="points" type="number" min="-999" max="999" value="${myScore?.manualBonus || 0}"></label><button type="submit">Saját bónusz mentése</button></form>${state.isHost ? '<div class="actions"><button data-action="start">Új játék ugyanebben a szobában</button></div>' : ''}</section>`;
 }
 
 function render() {
@@ -205,20 +383,28 @@ function stopPolling() {
 
 async function createSession(form) {
   const data = new FormData(form);
-  const result = await api('/session', { method: 'POST', body: JSON.stringify({ hostName: data.get('name') }) });
+  const result = await api('/session', {
+    method: 'POST',
+    body: JSON.stringify({ hostName: data.get('name') })
+  });
   saveAuth({ code: result.code, playerId: result.playerId, token: result.token });
   history.replaceState(null, '', `${BASE}/${result.code}`);
-  await refresh(); startPolling();
+  await refresh();
+  startPolling();
 }
 
 async function joinSession(form) {
   const data = new FormData(form);
   const code = String(data.get('code') || '').trim();
   if (!/^\d{5}$/.test(code)) throw new Error('invalid_code');
-  const result = await api(`/session/${code}/join`, { method: 'POST', body: JSON.stringify({ name: data.get('name') }) });
+  const result = await api(`/session/${code}/join`, {
+    method: 'POST',
+    body: JSON.stringify({ name: data.get('name') })
+  });
   saveAuth({ code, playerId: result.playerId, token: result.token });
   history.replaceState(null, '', `${BASE}/${code}`);
-  await refresh(); startPolling();
+  await refresh();
+  startPolling();
 }
 
 async function post(path, body = {}) {
@@ -232,48 +418,100 @@ app.addEventListener('submit', async (event) => {
   try {
     if (form.id === 'create-form') await createSession(form);
     else if (form.id === 'join-form') await joinSession(form);
-    else if (form.id === 'build-form') {
+    else if (form.id === 'bonus-form') {
       const data = new FormData(form);
-      await post(`/session/${state.code}/district`, { name: data.get('name'), type: data.get('type'), cost: Number(data.get('cost')) });
-      form.reset();
-    } else if (form.id === 'bonus-form') {
-      const data = new FormData(form);
-      await post(`/session/${state.code}/score/bonus`, { points: Number(data.get('points')) });
+      await post(`/session/${state.code}/score/bonus`, {
+        points: Number(data.get('points'))
+      });
     }
-  } catch (err) { showToast(errors[err.code] || (err.message === 'invalid_code' ? 'A szobakód öt számjegyből áll.' : err.code || err.message)); }
+  } catch (err) {
+    showToast(errors[err.code] || (err.message === 'invalid_code'
+      ? 'A szobakód öt számjegyből áll.'
+      : err.code || err.message));
+  }
 });
 
 app.addEventListener('click', async (event) => {
   const button = event.target.closest('button[data-action]');
   if (!button || !state) return;
   const action = button.dataset.action;
+
   try {
-    if (action === 'start') await post(`/session/${state.code}/start`);
-    else if (action === 'crown') await post(`/session/${state.code}/crown`, { playerId: button.dataset.player });
-    else if (action === 'move-up' || action === 'move-down') {
-      const ids = state.players.map((p) => p.id);
+    if (action === 'start') {
+      await post(`/session/${state.code}/start`);
+    } else if (action === 'crown') {
+      await post(`/session/${state.code}/crown`, { playerId: button.dataset.player });
+    } else if (action === 'move-up' || action === 'move-down') {
+      const ids = state.players.map((player) => player.id);
       const index = ids.indexOf(button.dataset.player);
       const swap = action === 'move-up' ? index - 1 : index + 1;
       [ids[index], ids[swap]] = [ids[swap], ids[index]];
       await post(`/session/${state.code}/reorder`, { playerIds: ids });
-    } else if (action === 'choose-character') await post(`/session/${state.code}/draft/choose`, { characterId: button.dataset.character });
-    else if (action === 'gold') await post(`/session/${state.code}/gold`, { playerId: button.dataset.player, delta: Number(button.dataset.delta) });
-    else if (action === 'end-turn') await post(`/session/${state.code}/turn/end`);
-    else if (action === 'delete-district') {
-      if (!confirm('Törlöd ezt a kerületet az asztalról?')) return;
-      await api(`/session/${state.code}/district/${encodeURIComponent(button.dataset.district)}`, { method: 'DELETE' });
+    } else if (action === 'choose-character') {
+      await post(`/session/${state.code}/draft/choose`, {
+        characterId: button.dataset.character
+      });
+    } else if (action === 'take-resource') {
+      await post(`/session/${state.code}/turn/resource`, { mode: button.dataset.mode });
+    } else if (action === 'keep-drawn-card') {
+      await post(`/session/${state.code}/turn/resource/keep`, { cardId: button.dataset.card });
+    } else if (action === 'build-card') {
+      await post(`/session/${state.code}/turn/build`, { cardId: button.dataset.card });
+    } else if (action === 'ability-target-character') {
+      await post(`/session/${state.code}/turn/ability`, {
+        action: 'target-character',
+        targetCharacterId: button.dataset.character
+      });
+    } else if (action === 'magician-swap') {
+      await post(`/session/${state.code}/turn/ability`, {
+        action: 'swap-hands',
+        targetPlayerId: button.dataset.player
+      });
+    } else if (action === 'magician-redraw') {
+      const cardIds = [...document.querySelectorAll('input[name="magician-card"]:checked')]
+        .map((input) => input.value);
+      await post(`/session/${state.code}/turn/ability`, {
+        action: 'redraw',
+        cardIds
+      });
+    } else if (action === 'ability-income') {
+      await post(`/session/${state.code}/turn/ability`, { action: 'income' });
+    } else if (action === 'warlord-destroy') {
+      if (!confirm('Biztosan elpusztítod ezt a kerületet?')) return;
+      await post(`/session/${state.code}/turn/ability`, {
+        action: 'destroy-district',
+        cardId: button.dataset.card
+      });
+    } else if (action === 'gold') {
+      await post(`/session/${state.code}/gold`, {
+        playerId: button.dataset.player,
+        delta: Number(button.dataset.delta)
+      });
+    } else if (action === 'end-turn') {
+      await post(`/session/${state.code}/turn/end`);
+    } else if (action === 'delete-district') {
+      if (!confirm('Admin javításként törlöd ezt a kerületet az asztalról?')) return;
+      await api(`/session/${state.code}/district/${encodeURIComponent(button.dataset.district)}`, {
+        method: 'DELETE'
+      });
       await refresh();
     }
-  } catch (err) { showToast(errors[err.code] || err.code || err.message); }
+  } catch (err) {
+    showToast(errors[err.code] || err.code || err.message);
+  }
 });
 
 helpButton.addEventListener('click', () => helpDialog.showModal());
 helpClose.addEventListener('click', () => helpDialog.close());
-helpDialog.addEventListener('click', (event) => { if (event.target === helpDialog) helpDialog.close(); });
+helpDialog.addEventListener('click', (event) => {
+  if (event.target === helpDialog) helpDialog.close();
+});
 
 (async function bootstrap() {
   if (auth?.code) {
     await refresh();
     if (state) startPolling();
-  } else renderHome();
+  } else {
+    renderHome();
+  }
 })();

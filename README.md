@@ -1,20 +1,37 @@
 # Citadella – telefonos asztal
 
-Mobilbarát, Redis-alapú Citadella segédalkalmazás a játékszobához. A cél nem a kerületkártyák teljes digitalizálása: a fizikai lapok maradhatnak a játékosoknál, a webapp pedig kezeli a titkos karakterválasztást, a nyílt aranykészletet, a megépített kerületek összesített állapotát, a körsorrendet és az eredményszámítás alapját.
+Mobilbarát, Redis-alapú Citadella játékszoba. Az alkalmazás kezeli a titkos karakterválasztást, a kerületpaklit és a játékosok privát kezét, az aranyat, az építést, a körsorrendet és a legfontosabb karakterképességeket.
 
 ## Jelenlegi játékmód
 
 - 4–8 játékos.
+- Minden játékos 2 arannyal és 4 titkos kerületlappal indul.
+- A kerületpakli az első játékhoz használt 54 alap + 14 egyedi kerületből áll.
+- A saját kéz csak a saját telefonon látható; más játékosok csak a kézlapok számát látják.
+- A kör elején az aktív játékos 2 aranyat választ, vagy 2 kerületlapból 1-et tart meg.
+- Építeni közvetlenül a saját kézben látható lapra kattintva lehet; az app levonja az aranyat és az asztalra teszi a kerületet.
+- Normál karakter körönként legfeljebb 1, az Építész legfeljebb 3 kerületet építhet.
 - 4–7 főnél a klasszikus 1–8. rangú karakterek szerepelnek.
 - 8 főnél kilencedik karakterként a Királynő kerül be.
-- A kiválasztási fázisban az app kezeli a képpel felfelé/lefelé félretett karaktereket és a 7–8 játékosra vonatkozó utolsó választó szabályát.
+- A kiválasztási fázis kezeli a nyílt/rejtett félretett karaktereket és a 7–8 játékosra vonatkozó utolsó választó szabályát.
 - A karaktered és a képességed a saját telefonodon végig látszik.
-- A `?` gomb a játékban lévő összes karakter képességét mutatja.
-- A közös asztal minden játékos aranyát és megépített kerületeit mutatja.
-- Kerület építésekor csak név, típus és költség kell; a kártya különleges hatása a fizikai kártyán marad.
-- A pontozás automatikusan számolja a kerületek költségét, az öt típusért járó +3 pontot és a befejezési bónuszt. Az egyedi kerületek további pontja kézzel adható meg.
+- A `?` gomb a játékban lévő karakterek részletes képességét mutatja.
+- A közös asztal minden játékos aranyát, kézlapjainak számát és megépített kerületeit mutatja.
+- A pontozás automatikusan számolja a kerületek alapértékét, az öt típusért járó +3 pontot és a befejezési bónuszt. A még nem automatizált egyedi kerülethatások pontjai kézzel adhatók meg.
 
-A karakterképességeket az alkalmazás nem erőlteti rá automatikusan a játékosokra. Ez tudatos: több képesség a fizikai kézben tartott kerületlapokkal, választással vagy blöffel dolgozik. Az aktív játékos és a host a nyílt aranyállapotot korrigálhatja, így a képességek eredménye lekövethető.
+## Interaktív karakterképességek
+
+- **Orgyilkos:** karakterre kattintva kijelöli az áldozatot; az érintett karakter köre automatikusan kimarad és nem fedődik fel.
+- **Tolvaj:** karakterre kattintva kijelöli a célpontot; amikor az a karakter sorra kerül, az aranya automatikusan a Tolvajhoz kerül.
+- **Mágus:** egy másik játékossal teljes kézcsere, vagy kijelölt saját lapok eldobása és ugyanannyi új húzása.
+- **Király / Püspök / Kereskedő / Hadúr:** kattintható színbevétel.
+- **Király:** a korona automatikusan átkerül hozzá.
+- **Kereskedő:** a plusz 1 arany automatikus.
+- **Építész:** a plusz 2 kerületlap automatikus, és az építési limit 3.
+- **Hadúr:** a nyílt asztalról kattintással választhat elpusztítandó kerületet; az app kezeli a költséget és az alapvető védelmeket.
+- **Királynő:** a Király melletti ülésért járó bónuszt az app automatikusan kezeli.
+
+Néhány egyedi kerület összetettebb, opcionális hatása még nem teljesen automatizált. A Factory, Library és Quarry alapvető játékmeneti hatása már be van kötve; a többi egyedi lap szövege megjelenik a kézben, és a pontozásnál szükség esetén kézi bónusz használható.
 
 ## Indítás fejlesztői gépen
 
@@ -39,11 +56,12 @@ A repo ugyanazt a frissítési mintát követi, mint a többi játékszoba-app:
 
 Pi 5 esetén `--target pi5`. A script ellenőrzi a node nevét és architektúráját, lokális image-et épít, importálja a k3s containerd-be, majd frissíti a Deploymentet és Service-t.
 
-Az ingress útvonal a központi `Nicqx/ingress` repóban legyen: `/citadella -> citadella-game-service:8106`.
+Az ingress útvonal a központi `Nicqx/ingress` repóban: `/citadella -> citadella-game-service:8106`.
 
 ## Session és biztonság
 
 - Ötjegyű sessionkód.
 - 6 órás Redis TTL, aktív lekérdezésnél meghosszabbítva.
 - Minden játékos külön, véletlen kliens-token kap; a token nem kerül a publikus játékállapotba.
+- A kézben lévő kerületlapokat a szerver csak a saját hitelesített játékos válaszában adja vissza.
 - A konténer nem rootként fut, read-only root filesystemmel, letiltott service-account tokennel és eldobott Linux capabilitykkel.
