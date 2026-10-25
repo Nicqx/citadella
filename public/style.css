@@ -100,3 +100,40 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   .score-line { grid-template-columns: 1fr repeat(2, auto); }
   .score-line .optional { display: none; }
 }
+
+
+/* Interactive district hand + character actions */
+.topbar-meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.section-head h2 { margin-bottom: 0; }
+.hand-panel { border-color: #4a5f7d; }
+.hand-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.district-card { display: grid; gap: 10px; padding: 12px; border: 1px solid #415570; border-radius: 13px; background: #111a27; min-width: 0; }
+.district-card-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 9px; align-items: center; }
+.district-card-head strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-type { display: block; color: var(--muted); font-size: .76rem; margin-top: 2px; }
+.card-cost { color: var(--gold); font-weight: 900; white-space: nowrap; }
+.card-cost s { color: var(--muted); font-weight: 600; }
+.card-effect { color: #c7d2e0; font-size: .86rem; line-height: 1.4; margin: 0; }
+.card-check { display: flex; grid-template-columns: auto 1fr; align-items: center; gap: 8px; color: var(--text); }
+.card-check input { width: 20px; min-height: 20px; }
+.choice-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.action-panel, .ability-panel { border-color: #506887; }
+.compact-panel { padding: 10px 14px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.good { color: var(--good); border-color: #43735e; }
+.danger-badge { color: #ffd2d2; border-color: #8a4856; background: #402128; }
+.announcements { border-left: 4px solid var(--danger); }
+.divider { height: 1px; background: var(--line); margin: 2px 0; }
+.target-list { display: grid; gap: 8px; }
+.target-district { display: flex; align-items: center; justify-content: space-between; gap: 10px; text-align: left; }
+.nested-hand { padding: 0; }
+.nested-hand .section-head { display: none; }
+.nested-hand .hand-grid { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+
+@media (max-width: 720px) {
+  .topbar { align-items: flex-start; }
+  .topbar-meta { max-width: 48%; }
+  .choice-grid { grid-template-columns: 1fr; }
+  .hand-grid { grid-template-columns: 1fr; }
+  .district-card { padding: 11px; }
+}
