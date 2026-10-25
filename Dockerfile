@@ -3,8 +3,9 @@ FROM node:20-alpine
 WORKDIR /app
 COPY package*.json ./
 RUN npm install --omit=dev
-COPY game.js server.js ./
+COPY game.js districts.js server.js ./
 COPY public ./public
+RUN node -e "require('./server')"
 RUN chown -R node:node /app
 USER 1000:1000
 ENV PORT=8106
