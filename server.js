@@ -238,7 +238,7 @@ function playerView(session, player, actor) {
     gold: player.gold,
     built: player.built.map(districtPublic),
     handCount: player.hand.length,
-    hand: self ? player.hand.map(districtPublic) : undefined,
+    ...(self ? { hand: player.hand.map(districtPublic) } : {}),
     manualBonus: session.phase === 'finished' ? player.manualBonus : undefined,
     character: canSeeCharacter && player.characterId ? characterPublic(player.characterId) : null,
     hasCharacter: Boolean(player.characterId),
