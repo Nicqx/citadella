@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node server.js",
     "test": "node --test",
-    "check": "node --check server.js && node --check game.js && node --check public/app.js"
+    "check": "node --check server.js && node --check game.js && node --check districts.js && node --check public/app.js"
   },
   "dependencies": {
     "express": "^4.21.2",
