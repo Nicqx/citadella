@@ -259,6 +259,7 @@ function turnActionView(session, actor) {
     incomeUsed: Boolean(action.incomeUsed),
     specialUsed: Boolean(action.specialUsed),
     destructionUsed: Boolean(action.destructionUsed),
+    districtUses: selfActive ? { ...(action.districtUses || {}) } : {},
     pendingDraw: selfActive ? (action.pendingDraw || []).map(districtPublic) : []
   };
 }
@@ -425,6 +426,7 @@ function activateCurrentTurn(session) {
       incomeUsed: false,
       specialUsed: false,
       destructionUsed: false,
+      districtUses: {},
       pendingDraw: []
     };
     applyTurnStartEffects(session, current);
@@ -836,6 +838,49 @@ api.post('/session/:code/turn/ability', async (req, res, next) => {
         action.destructionUsed = true;
       } else {
         throw httpError(400, 'invalid_ability_action');
+      }
+
+      await saveSession(session);
+    });
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+api.post('/session/:code/turn/district-ability', async (req, res, next) => {
+  try {
+    await withLock(req.params.code, async () => {
+      const session = requireSession(await loadSession(req.params.code));
+      const actor = authPlayer(session, req);
+      requireActiveActor(session, actor);
+      const action = activeAction(session);
+      if (!action.resourceGathered) throw httpError(409, 'resource_required');
+      if (action.pendingDraw?.length) throw httpError(409, 'draw_choice_required');
+      if (!action.districtUses || typeof action.districtUses !== 'object') action.districtUses = {};
+
+      const districtId = String(req.body.districtId || '');
+
+      if (districtId === 'laboratory') {
+        if (!hasDistrict(actor, 'laboratory')) throw httpError(409, 'district_ability_unavailable');
+        if (action.districtUses.laboratory) throw httpError(409, 'district_ability_already_used');
+
+        const cardId = String(req.body.cardId || '');
+        const cardIndex = actor.hand.findIndex((card) => card.cardId === cardId);
+        if (cardIndex < 0) throw httpError(404, 'district_not_in_hand');
+
+        const [discarded] = actor.hand.splice(cardIndex, 1);
+        putOnDeckBottom(session, [discarded]);
+        actor.gold = Math.min(MAX_GOLD, actor.gold + 2);
+        action.districtUses.laboratory = true;
+      } else if (districtId === 'smithy') {
+        if (!hasDistrict(actor, 'smithy')) throw httpError(409, 'district_ability_unavailable');
+        if (action.districtUses.smithy) throw httpError(409, 'district_ability_already_used');
+        if (actor.gold < 2) throw httpError(409, 'not_enough_gold');
+
+        actor.gold -= 2;
+        actor.hand.push(...drawCards(session, 3));
+        action.districtUses.smithy = true;
+      } else {
+        throw httpError(400, 'invalid_district_ability');
       }
 
       await saveSession(session);
