@@ -490,11 +490,20 @@ function renderHelp() {
       </div>
     </details>`;
 }
+function shouldRenderState(previousState, nextState) {
+  if (!previousState) return true;
+  return previousState.code !== nextState.code ||
+    previousState.updatedAt !== nextState.updatedAt ||
+    previousState.phase !== nextState.phase;
+}
+
 async function refresh() {
   if (!auth?.code) return;
   try {
-    state = await api(`/session/${encodeURIComponent(auth.code)}/state`);
-    render();
+    const nextState = await api(`/session/${encodeURIComponent(auth.code)}/state`);
+    const shouldRender = shouldRenderState(state, nextState);
+    state = nextState;
+    if (shouldRender) render();
   } catch (err) {
     if (['session_not_found', 'auth_failed'].includes(err.code)) {
       stopPolling();
