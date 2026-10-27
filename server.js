@@ -129,6 +129,7 @@ function ensureSessionFields(session) {
   if (!session) return session;
   session.players.forEach(ensurePlayerFields);
   if (!Array.isArray(session.districtDeck)) session.districtDeck = [];
+  if (!Array.isArray(session.roundFaceUpCharacterIds)) session.roundFaceUpCharacterIds = [];
   ensureRoundEffects(session);
   return session;
 }
@@ -293,6 +294,7 @@ function stateView(session, actor, ttlSeconds) {
     firstCompletedPlayerId: session.firstCompletedPlayerId,
     finalRound: Boolean(session.finalRound),
     deckCount: session.districtDeck.length,
+    faceUpCharacters: (draft ? draft.faceUpIds : session.roundFaceUpCharacterIds).map(characterPublic).filter(Boolean),
     me: playerView(session, actor, actor),
     isHost: actor.id === session.hostPlayerId,
     canAdminPublicState: canAdminPublicState(session, actor),
@@ -340,6 +342,7 @@ function setupDistrictDeck(session) {
 
 function prepareDraft(session) {
   session.players.forEach((p) => { p.characterId = null; });
+  session.roundFaceUpCharacterIds = [];
   session.draft = createDraft(sortedPlayers(session), session.crownPlayerId);
   session.turn = null;
   session.phase = 'draft';
@@ -351,6 +354,7 @@ function prepareDraft(session) {
 }
 
 function beginTurns(session) {
+  session.roundFaceUpCharacterIds = [...session.draft.faceUpIds];
   for (const [playerId, characterId] of Object.entries(session.draft.choices)) {
     const player = getPlayer(session, playerId);
     if (player) player.characterId = characterId;
@@ -546,6 +550,7 @@ api.post('/session', async (req, res, next) => {
         thiefTargetCharacterId: null,
         thiefPlayerId: null
       },
+      roundFaceUpCharacterIds: [],
       firstCompletedPlayerId: null,
       finalRound: false,
       winnerPlayerId: null
@@ -773,7 +778,11 @@ api.post('/session/:code/turn/ability', async (req, res, next) => {
         if (action.specialUsed) throw httpError(409, 'ability_already_used');
         if (abilityAction !== 'target-character') throw httpError(400, 'invalid_ability_action');
         const target = String(req.body.targetCharacterId || '');
-        if (!inUseCharacterIds(session).has(target) || target === 'assassin') throw httpError(400, 'invalid_character_target');
+        if (
+          !inUseCharacterIds(session).has(target) ||
+          target === 'assassin' ||
+          session.roundFaceUpCharacterIds.includes(target)
+        ) throw httpError(400, 'invalid_character_target');
         effects.assassinatedCharacterId = target;
         action.specialUsed = true;
       } else if (current.characterId === 'thief') {
@@ -784,7 +793,8 @@ api.post('/session/:code/turn/ability', async (req, res, next) => {
           !inUseCharacterIds(session).has(target) ||
           target === 'assassin' ||
           target === 'thief' ||
-          target === effects.assassinatedCharacterId
+          target === effects.assassinatedCharacterId ||
+          session.roundFaceUpCharacterIds.includes(target)
         ) {
           throw httpError(400, 'invalid_character_target');
         }
