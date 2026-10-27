@@ -242,7 +242,10 @@ function renderDraft() {
 function districtChip(district) {
   const type = typeInfo(district.type);
   const canDelete = state.isHost;
-  return `<span class="district" title="${escapeHtml(district.effect || type.label)}"><span class="type-dot type-${escapeHtml(type.id)}">${escapeHtml(type.symbol)}</span><span class="name">${escapeHtml(district.name)}</span><span class="cost">${district.cost}${district.beautified ? '+1' : ''}</span>${canDelete ? `<button data-action="delete-district" data-district="${district.cardId}" aria-label="Kerület törlése">×</button>` : ''}</span>`;
+  const museumCount = district.id === 'museum' && district.storedCardCount
+    ? `<span class="badge">🖼️ ${district.storedCardCount}</span>`
+    : '';
+  return `<span class="district" title="${escapeHtml(district.effect || type.label)}"><span class="type-dot type-${escapeHtml(type.id)}">${escapeHtml(type.symbol)}</span><span class="name">${escapeHtml(district.name)}</span><span class="cost">${district.cost}${district.beautified ? '+1' : ''}</span>${museumCount}${canDelete ? `<button data-action="delete-district" data-district="${district.cardId}" aria-label="Kerület törlése">×</button>` : ''}</span>`;
 }
 
 function playerCard(player) {
@@ -406,6 +409,19 @@ function districtAbilityPanel() {
     }
   }
 
+  if (builtIds.has('museum')) {
+    const museum = (state.me.built || []).find((district) => district.id === 'museum');
+    const stored = Number(museum?.storedCardCount || 0);
+    if (uses.museum) {
+      blocks.push(`<div class="district-ability-row"><div><strong>Múzeum</strong><div class="muted small-text">${stored} lap alatta · ${stored} pont jelenleg</div></div><span class="badge good">✓ használva</span></div>`);
+    } else if ((state.me.hand || []).length) {
+      const options = state.me.hand.map((card) => `<option value="${card.cardId}">${escapeHtml(card.name)} (${card.cost} 🪙)</option>`).join('');
+      blocks.push(`<div class="district-ability-row"><div><strong>Múzeum</strong><div class="muted small-text">Körönként 1 kézlapot tehetsz alá · minden alátett lap +1 pont a végén · jelenleg: ${stored}</div></div><div class="inline-control"><select id="museum-card">${options}</select><button class="secondary" data-action="use-museum">Lap alá helyezése</button></div></div>`);
+    } else {
+      blocks.push(`<div class="district-ability-row"><div><strong>Múzeum</strong><div class="muted small-text">${stored} lap alatta · nincs kézlap, amit alátehetnél</div></div></div>`);
+    }
+  }
+
   if (!blocks.length) return '';
   return `<section class="panel stack ability-panel"><div><p class="eyebrow">Egyedi kerületek</p><h2>Használható hatások</h2></div><div class="district-ability-list">${blocks.join('')}</div></section>`;
 }
@@ -422,15 +438,18 @@ function renderTurns() {
 function renderFinished() {
   helpButton.classList.remove('hidden');
   const byId = new Map(state.scores.map((score) => [score.playerId, score]));
+  const typeLabels = new Map((state.districtTypes || []).map((type) => [type.id, type.label]));
   const rows = [...state.players]
     .sort((a, b) => (byId.get(b.id)?.total || 0) - (byId.get(a.id)?.total || 0))
     .map((player) => {
       const score = byId.get(player.id);
       const winner = player.id === state.winnerPlayerId;
-      return `<div class="player-row score-line ${winner ? 'winner' : ''}"><strong>${winner ? '♛ ' : ''}${escapeHtml(player.name)}</strong><span class="score-number optional" title="Kerületek">${score.districtPoints}</span><span class="score-number optional" title="Típusbónusz">+${score.diversityBonus}</span><span class="score-number optional" title="Befejezés">+${score.completionBonus}</span><span class="score-number optional" title="Automatikus egyedi kerületbónusz">+${score.uniqueBonus || 0}</span><span class="score-number" title="Kézi pontkorrekció a még nem automatizált hatásokhoz">${score.manualBonus >= 0 ? '+' : ''}${score.manualBonus}</span><strong class="score-number">${score.total}</strong></div>`;
+      const haunted = score.hauntedQuarterType && score.hauntedQuarterType !== 'unique'
+        ? `<small class="score-note">Kísértetváros: ${escapeHtml(typeLabels.get(score.hauntedQuarterType) || score.hauntedQuarterType)}</small>`
+        : '';
+      return `<div class="player-row score-line ${winner ? 'winner' : ''}"><div><strong>${winner ? '♛ ' : ''}${escapeHtml(player.name)}</strong>${haunted}</div><span class="score-number optional" title="Megépített kerületek pontjai">${score.districtPoints}</span><span class="score-number optional" title="Mind az öt kerülettípus bónusza">+${score.diversityBonus}</span><span class="score-number optional" title="Befejezett város bónusza">+${score.completionBonus}</span><span class="score-number optional" title="Egyedi kerületek automatikus bónuszpontjai">+${score.uniqueBonus || 0}</span><strong class="score-number" title="Összes pont">${score.total}</strong></div>`;
     }).join('');
-  const myScore = byId.get(state.me.id);
-  app.innerHTML = `${renderTopbar()}${handPanel()}<section class="panel stack"><h2>Eredmény</h2><p class="muted">Az alap kerületpontok, az ötféle típus, a város befejezési bónusza és a legtöbb egyszerű egyedi kerületpont automatikus. Az összetettebb, választást igénylő hatások korrekcióját add meg kézzel.</p><div class="score-list">${rows}</div><form id="bonus-form" class="actions"><label>Kézi pontkorrekció <span class="small-text muted">Csak akkor használd, ha egy különleges kerülethatást az app még nem számolt automatikusan.</span><input name="points" type="number" min="-999" max="999" value="${myScore?.manualBonus || 0}"></label><button type="submit">Korrekció mentése</button></form>${state.isHost ? '<div class="actions"><button data-action="start">Új játék ugyanebben a szobában</button><button class="secondary" data-action="leave-session">Új szoba létrehozása</button></div>' : '<div class="actions"><button class="secondary" data-action="leave-session">Kilépés / új szoba</button></div>'}</section>`;
+  app.innerHTML = `${renderTopbar()}${handPanel()}<section class="panel stack"><h2>Eredmény</h2><p class="muted">A pontozás teljesen automatikus: az app számolja a kerületek értékét, az ötféle típust, a város befejezési bónuszát és a kiválasztott egyedi kerületek játékvégi pontjait. A Kísértetvárosnál automatikusan a legtöbb pontot adó szabályos típust használja.</p><div class="score-list">${rows}</div>${state.isHost ? '<div class="actions"><button data-action="start">Új játék ugyanebben a szobában</button><button class="secondary" data-action="leave-session">Új szoba létrehozása</button></div>' : '<div class="actions"><button class="secondary" data-action="leave-session">Kilépés / új szoba</button></div>'}</section>`;
 }
 
 function render() {
@@ -588,12 +607,6 @@ app.addEventListener('submit', async (event) => {
       const districtIds = data.getAll('districtId').map(String);
       if (districtIds.length !== 14) throw Object.assign(new Error('unique_district_selection_count'), { code: 'unique_district_selection_count' });
       await post(`/session/${state.code}/config/unique-districts`, { districtIds });
-    } else if (form.id === 'bonus-form') {
-      const data = new FormData(form);
-      await post(`/session/${state.code}/score/bonus`, {
-        points: Number(data.get('points'))
-      });
-    }
   } catch (err) {
     showToast(errors[err.code] || (err.message === 'invalid_code'
       ? 'A szobakód öt számjegyből áll.'
@@ -666,6 +679,13 @@ app.addEventListener('click', async (event) => {
     } else if (action === 'use-smithy') {
       await post(`/session/${state.code}/turn/district-ability`, {
         districtId: 'smithy'
+      });
+    } else if (action === 'use-museum') {
+      const select = document.getElementById('museum-card');
+      if (!select?.value) throw new Error('cards_required');
+      await post(`/session/${state.code}/turn/district-ability`, {
+        districtId: 'museum',
+        cardId: select.value
       });
     } else if (action === 'warlord-destroy') {
       if (!confirm('Biztosan elpusztítod ezt a kerületet?')) return;
