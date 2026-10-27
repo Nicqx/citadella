@@ -133,6 +133,8 @@ function ensureSessionFields(session) {
   session.players.forEach(ensurePlayerFields);
   if (!Array.isArray(session.districtDeck)) session.districtDeck = [];
   if (!Array.isArray(session.roundFaceUpCharacterIds)) session.roundFaceUpCharacterIds = [];
+  if (!Array.isArray(session.botActionLog)) session.botActionLog = [];
+  if (!Number.isInteger(session.botActionSeq)) session.botActionSeq = 0;
   if (!Array.isArray(session.selectedUniqueDistrictIds) || session.selectedUniqueDistrictIds.length !== 14) {
     session.selectedUniqueDistrictIds = [...DEFAULT_UNIQUE_DISTRICT_IDS];
   }
@@ -311,6 +313,7 @@ function stateView(session, actor, ttlSeconds) {
     })),
     botCount: session.players.filter((player) => player.isBot).length,
     humanCount: session.players.filter((player) => !player.isBot).length,
+    botActions: session.botActionLog.slice(-8),
     faceUpCharacters: (draft ? draft.faceUpIds : session.roundFaceUpCharacterIds).map(characterPublic).filter(Boolean),
     me: playerView(session, actor, actor),
     isHost: actor.id === session.hostPlayerId,
@@ -589,19 +592,41 @@ function botPick(array) {
   return array[crypto.randomInt(0, array.length)];
 }
 
-function botGatherResource(session, actor, action) {
+function addBotAction(session, actor, characterId, messages, phase = 'turn') {
+  const cleanMessages = (Array.isArray(messages) ? messages : [messages]).filter(Boolean);
+  if (!cleanMessages.length) return;
+  session.botActionSeq = Number(session.botActionSeq || 0) + 1;
+  const character = CHARACTER_MAP.get(characterId);
+  session.botActionLog.push({
+    id: session.botActionSeq,
+    round: session.round,
+    phase,
+    playerId: actor.id,
+    playerName: actor.name,
+    characterId: characterId || null,
+    characterName: character?.name || null,
+    messages: cleanMessages
+  });
+  if (session.botActionLog.length > 12) session.botActionLog = session.botActionLog.slice(-12);
+}
+
+function botGatherResource(session, actor, action, notes) {
   const takeCards = actor.hand.length < 4 && session.districtDeck.length >= 2;
   if (!takeCards) {
-    actor.gold = Math.min(MAX_GOLD, actor.gold + 2 + (hasDistrict(actor, 'gold-mine') ? 1 : 0));
+    const amount = 2 + (hasDistrict(actor, 'gold-mine') ? 1 : 0);
+    actor.gold = Math.min(MAX_GOLD, actor.gold + amount);
     action.resourceGathered = true;
+    notes.push(`${amount} aranyat vett fel.`);
     return;
   }
 
   const drawCount = hasDistrict(actor, 'observatory') ? 3 : 2;
   const safeCount = Math.min(drawCount, session.districtDeck.length);
   if (safeCount <= 0) {
-    actor.gold = Math.min(MAX_GOLD, actor.gold + 2 + (hasDistrict(actor, 'gold-mine') ? 1 : 0));
+    const amount = 2 + (hasDistrict(actor, 'gold-mine') ? 1 : 0);
+    actor.gold = Math.min(MAX_GOLD, actor.gold + amount);
     action.resourceGathered = true;
+    notes.push(`${amount} aranyat vett fel.`);
     return;
   }
 
@@ -609,14 +634,16 @@ function botGatherResource(session, actor, action) {
   action.resourceGathered = true;
   if (hasDistrict(actor, 'library')) {
     actor.hand.push(...drawn);
+    notes.push(`${safeCount} kerületlapot húzott, és a Könyvtár miatt mindet megtartotta.`);
   } else {
     const chosen = [...drawn].sort((a, b) => b.cost - a.cost)[0];
     actor.hand.push(chosen);
     putOnDeckBottom(session, drawn.filter((card) => card.cardId !== chosen.cardId));
+    notes.push(`${safeCount} kerületlapból 1-et megtartott.`);
   }
 }
 
-function botUseCharacterAbility(session, actor, current, action) {
+function botUseCharacterAbility(session, actor, current, action, notes) {
   const effects = ensureRoundEffects(session);
 
   if (current.characterId === 'assassin' && !action.specialUsed) {
@@ -624,6 +651,7 @@ function botUseCharacterAbility(session, actor, current, action) {
     if (target) {
       effects.assassinatedCharacterId = target;
       action.specialUsed = true;
+      notes.push(`Orgyilkosként ezt a karaktert jelölte ki: ${CHARACTER_MAP.get(target)?.name || target}.`);
     }
   } else if (current.characterId === 'thief' && !action.specialUsed) {
     const target = botPick([...targetableCharacterIds(session, 'thief')]);
@@ -631,6 +659,7 @@ function botUseCharacterAbility(session, actor, current, action) {
       effects.thiefTargetCharacterId = target;
       effects.thiefPlayerId = actor.id;
       action.specialUsed = true;
+      notes.push(`Tolvajként ezt a karaktert jelölte ki: ${CHARACTER_MAP.get(target)?.name || target}.`);
     }
   } else if (current.characterId === 'magician' && !action.specialUsed) {
     const candidates = session.players
@@ -640,16 +669,19 @@ function botUseCharacterAbility(session, actor, current, action) {
     if (target) {
       [actor.hand, target.hand] = [target.hand, actor.hand];
       action.specialUsed = true;
+      notes.push(`Mágusként kézlapot cserélt vele: ${target.name}.`);
     }
   }
 
   if (['king', 'bishop', 'merchant', 'warlord'].includes(current.characterId) && !action.incomeUsed) {
-    actor.gold = Math.min(MAX_GOLD, actor.gold + characterIncome(actor, current.characterId));
+    const amount = characterIncome(actor, current.characterId);
+    actor.gold = Math.min(MAX_GOLD, actor.gold + amount);
     action.incomeUsed = true;
+    if (amount > 0) notes.push(`Karakterbevételként +${amount} aranyat kapott.`);
   }
 }
 
-function botBuild(session, actor, current, action) {
+function botBuild(session, actor, current, action, notes) {
   const limit = current.characterId === 'architect' ? 3 : 1;
   let safety = 0;
 
@@ -671,6 +703,7 @@ function botBuild(session, actor, current, action) {
     actor.gold -= choice.cost;
     const [card] = actor.hand.splice(choice.index, 1);
     actor.built.push({ ...card, beautified: false, builtAtRound: session.round });
+    notes.push(`Megépítette: ${card.name} (${choice.cost} arany).`);
     if (card.id !== 'stables') action.builds += 1;
 
     if (!session.firstCompletedPlayerId && cityCompletionCount(actor) >= 7) {
@@ -685,9 +718,15 @@ function playBotTurn(session, actor) {
   const action = activeAction(session);
   if (!current || !action || current.playerId !== actor.id) return;
 
-  botGatherResource(session, actor, action);
-  botUseCharacterAbility(session, actor, current, action);
-  botBuild(session, actor, current, action);
+  const notes = [];
+  if (current.characterId === 'king') notes.push('Királyként megkapta a koronát.');
+  if (current.characterId === 'merchant') notes.push('Kereskedőként automatikusan +1 aranyat kapott.');
+  if (current.characterId === 'architect') notes.push('Építészként automatikusan 2 kerületlapot húzott.');
+
+  botGatherResource(session, actor, action, notes);
+  botUseCharacterAbility(session, actor, current, action, notes);
+  botBuild(session, actor, current, action, notes);
+  addBotAction(session, actor, current.characterId, notes);
   endCurrentTurn(session);
 }
 
@@ -703,6 +742,7 @@ function runBots(session) {
       const choice = botPick(draftOptions(session.draft));
       if (!choice) break;
       const completed = chooseCharacter(session.draft, player.id, choice);
+      addBotAction(session, player, null, ['Titokban karaktert választott.'], 'draft');
       if (completed) beginTurns(session);
       continue;
     }
@@ -777,6 +817,8 @@ api.post('/session', async (req, res, next) => {
         thiefPlayerId: null
       },
       roundFaceUpCharacterIds: [],
+      botActionLog: [],
+      botActionSeq: 0,
       firstCompletedPlayerId: null,
       finalRound: false,
       winnerPlayerId: null
@@ -902,6 +944,8 @@ api.post('/session/:code/start', async (req, res, next) => {
       if (session.players.length < 4 || session.players.length > 8) throw httpError(400, 'supported_player_count');
 
       session.round = 1;
+      session.botActionLog = [];
+      session.botActionSeq = 0;
       session.firstCompletedPlayerId = null;
       session.finalRound = false;
       session.winnerPlayerId = null;
