@@ -3,6 +3,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
+  UNIQUE_DISTRICTS,
+  DEFAULT_UNIQUE_DISTRICT_IDS,
   createDistrictDeck,
   effectiveBuildCost,
   canBuildDuplicate
@@ -34,7 +36,8 @@ test('starting a district game deals four private cards to every player', () => 
       characterId: null,
       manualBonus: 0
     })),
-    districtDeck: []
+    districtDeck: [],
+    selectedUniqueDistrictIds: [...DEFAULT_UNIQUE_DISTRICT_IDS]
   };
   session.players.forEach(initializePlayerForGame);
   setupDistrictDeck(session);
@@ -57,4 +60,26 @@ test('Quarry permits duplicate districts', () => {
   const card = { id: 'market', type: 'trade', cost: 2 };
   assert.equal(canBuildDuplicate({ built: [{ id: 'market' }] }, card), false);
   assert.equal(canBuildDuplicate({ built: [{ id: 'market' }, { id: 'quarry' }] }, card), true);
+});
+
+
+test('unique district catalog contains 30 cards and a game selects exactly 14', () => {
+  assert.equal(UNIQUE_DISTRICTS.length, 30);
+  assert.equal(DEFAULT_UNIQUE_DISTRICT_IDS.length, 14);
+  assert.equal(new Set(DEFAULT_UNIQUE_DISTRICT_IDS).size, 14);
+});
+
+test('custom unique district selection controls the 14 unique cards in the deck', () => {
+  const selected = UNIQUE_DISTRICTS.slice(0, 14).map((district) => district.id);
+  const deck = createDistrictDeck(selected);
+  const uniqueIds = new Set(deck.filter((card) => card.type === 'unique').map((card) => card.id));
+
+  assert.equal(deck.length, 68);
+  assert.equal(uniqueIds.size, 14);
+  assert.deepEqual([...uniqueIds].sort(), [...selected].sort());
+});
+
+test('district deck rejects a selection that is not exactly 14 distinct known cards', () => {
+  assert.throws(() => createDistrictDeck(DEFAULT_UNIQUE_DISTRICT_IDS.slice(0, 13)), /unique_district_selection_count/);
+  assert.throws(() => createDistrictDeck([...DEFAULT_UNIQUE_DISTRICT_IDS.slice(0, 13), 'missing-card']), /unknown_unique_district/);
 });
