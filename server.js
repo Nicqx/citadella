@@ -515,6 +515,20 @@ function inUseCharacterIds(session) {
   return new Set(inUseCharacters(session.players.length).map((character) => character.id));
 }
 
+function targetableCharacterIds(session, actingCharacterId) {
+  const ids = inUseCharacterIds(session);
+  for (const characterId of session.roundFaceUpCharacterIds || []) ids.delete(characterId);
+
+  if (actingCharacterId === 'assassin') {
+    ids.delete('assassin');
+  } else if (actingCharacterId === 'thief') {
+    ids.delete('assassin');
+    ids.delete('thief');
+    ids.delete(ensureRoundEffects(session).assassinatedCharacterId);
+  }
+  return ids;
+}
+
 api.post('/session', async (req, res, next) => {
   try {
     const code = await generateUniqueCode();
@@ -778,24 +792,16 @@ api.post('/session/:code/turn/ability', async (req, res, next) => {
         if (action.specialUsed) throw httpError(409, 'ability_already_used');
         if (abilityAction !== 'target-character') throw httpError(400, 'invalid_ability_action');
         const target = String(req.body.targetCharacterId || '');
-        if (
-          !inUseCharacterIds(session).has(target) ||
-          target === 'assassin' ||
-          session.roundFaceUpCharacterIds.includes(target)
-        ) throw httpError(400, 'invalid_character_target');
+        if (!targetableCharacterIds(session, 'assassin').has(target)) {
+          throw httpError(400, 'invalid_character_target');
+        }
         effects.assassinatedCharacterId = target;
         action.specialUsed = true;
       } else if (current.characterId === 'thief') {
         if (action.specialUsed) throw httpError(409, 'ability_already_used');
         if (abilityAction !== 'target-character') throw httpError(400, 'invalid_ability_action');
         const target = String(req.body.targetCharacterId || '');
-        if (
-          !inUseCharacterIds(session).has(target) ||
-          target === 'assassin' ||
-          target === 'thief' ||
-          target === effects.assassinatedCharacterId ||
-          session.roundFaceUpCharacterIds.includes(target)
-        ) {
+        if (!targetableCharacterIds(session, 'thief').has(target)) {
           throw httpError(400, 'invalid_character_target');
         }
         effects.thiefTargetCharacterId = target;
@@ -1061,5 +1067,6 @@ if (require.main === module) {
 module.exports = {
   stateView,
   initializePlayerForGame,
-  setupDistrictDeck
+  setupDistrictDeck,
+  targetableCharacterIds
 };
