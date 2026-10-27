@@ -128,7 +128,7 @@ function characterById(characterId) {
 function renderTopbar() {
   if (!state) return '';
   const canFinish = state.isHost && !['lobby', 'finished'].includes(state.phase);
-  return `<div class="topbar"><div class="brand"><p class="eyebrow">${escapeHtml(phaseLabel(state.phase))} · ${state.round ? `${state.round}. kör` : 'előkészület'}</p><h1>Citadella</h1></div><div class="topbar-meta"><span class="badge">pakli: ${state.deckCount ?? '—'}</span><div class="code-badge" title="Szobakód">${escapeHtml(state.code)}</div>${canFinish ? '<button class="danger mini-action" data-action="finish-game">Játék befejezése</button>' : ''}<button class="ghost mini-action" data-action="leave-session">Kilépés / új szoba</button></div></div>`;
+  return `<div class="topbar"><div class="brand"><p class="eyebrow">${escapeHtml(phaseLabel(state.phase))} · ${state.round ? `${state.round}. kör` : 'előkészület'}</p><h1>Citadella</h1></div><div class="topbar-meta"><span class="badge">👤 ${escapeHtml(state.me?.name || '—')}</span><span class="badge">pakli: ${state.deckCount ?? '—'}</span><div class="code-badge" title="Szobakód">${escapeHtml(state.code)}</div>${canFinish ? '<button class="danger mini-action" data-action="finish-game">Játék befejezése</button>' : ''}<button class="ghost mini-action" data-action="leave-session">Kilépés / új szoba</button></div></div>`;
 }
 
 function roleCard() {
@@ -205,7 +205,7 @@ function renderDraft() {
     ? state.draft.faceUp.map((role) => `<span class="badge">${role.rank}. ${escapeHtml(role.name)}</span>`).join('')
     : '<span class="muted">Nincs képpel felfelé félretett karakter.</span>';
 
-  app.innerHTML = `${renderTopbar()}${roleCard()}${handPanel()}<section class="panel stack"><div class="status-banner"><div><p class="eyebrow">Most választ</p><h2>${escapeHtml(current?.name || '—')}</h2></div><span class="badge">${state.draft.availableCount} lehetőség</span></div><div><p class="eyebrow">Nyíltan félretett karakterek</p><div class="face-up">${faceUp}</div></div>${myTurn ? `<div><p class="eyebrow">Válassz titokban egy karaktert</p><div class="draft-grid">${options}</div></div>` : `<p class="muted">Várj, amíg ${escapeHtml(current?.name || 'a következő játékos')} választ.</p>`}</section>`;
+  app.innerHTML = `${renderTopbar()}${roleCard()}${handPanel()}<section class="panel stack"><div class="status-banner"><div><p class="eyebrow">Most választ</p><h2>${escapeHtml(current?.name || '—')}</h2></div><span class="badge">${state.draft.availableCount} lehetőség</span></div><div><p class="eyebrow">Nyíltan félretett karakterek</p><div class="face-up">${faceUp}</div></div>${myTurn ? `<div><p class="eyebrow">Válassz titokban egy karaktert</p><div class="draft-grid">${options}</div></div>` : `<p class="muted">Várj, amíg ${escapeHtml(current?.name || 'a következő játékos')} választ.</p>`}</section><div class="table-grid">${state.players.map(playerCard).join('')}</div>`;
 }
 
 function districtChip(district) {
@@ -235,6 +235,12 @@ function resourcePanel() {
   return `<section class="panel stack action-panel"><div><p class="eyebrow">Kötelező lépés</p><h2>Mit veszel fel?</h2></div><div class="choice-grid"><button data-action="take-resource" data-mode="gold">🪙 2 arany</button><button class="secondary" data-action="take-resource" data-mode="cards">🃏 2 lapból 1</button></div></section>`;
 }
 
+function faceUpCharactersPanel() {
+  const cards = state.faceUpCharacters || [];
+  if (!cards.length) return '';
+  return `<section class="panel compact-panel face-up-panel"><span class="muted">Ebben a körben nyíltan félretéve:</span>${cards.map((role) => `<span class="badge">${role.rank}. ${escapeHtml(role.name)}</span>`).join('')}</section>`;
+}
+
 function announcementsPanel() {
   const killed = characterById(state.roundEffects?.assassinatedCharacterId);
   const robbed = characterById(state.roundEffects?.thiefTargetCharacterId);
@@ -244,8 +250,10 @@ function announcementsPanel() {
 
 function targetCharacterButtons(mode) {
   const roleId = state.turn.character.id;
+  const faceUpIds = new Set((state.faceUpCharacters || []).map((character) => character.id));
   return state.characters
     .filter((character) => {
+      if (faceUpIds.has(character.id)) return false;
       if (character.id === roleId) return false;
       if (mode === 'assassin') return character.id !== 'assassin';
       if (mode === 'thief') {
@@ -362,7 +370,7 @@ function renderTurns() {
   const selfActive = state.turn.activePlayerId === state.me.id;
   const canEnd = selfActive && state.turn.action.resourceGathered && !state.turn.action.pendingDraw?.length;
 
-  app.innerHTML = `${renderTopbar()}${roleCard()}${announcementsPanel()}<section class="panel status-banner"><div><p class="eyebrow">${state.finalRound ? 'Utolsó kör · ' : ''}${state.turn.index + 1}/${state.turn.total}</p><h2>${escapeHtml(active?.name || '—')} · ${state.turn.character.rank}. ${escapeHtml(state.turn.character.name)}</h2><p class="muted">${escapeHtml(state.turn.character.short)}</p></div>${selfActive ? `<button data-action="end-turn" ${canEnd ? '' : 'disabled'}>Kör vége</button>` : ''}</section>${resourcePanel()}${abilityPanel()}${districtAbilityPanel()}${handPanel({ build: true })}<div class="table-grid">${state.players.map(playerCard).join('')}</div>`;
+  app.innerHTML = `${renderTopbar()}${roleCard()}${faceUpCharactersPanel()}${announcementsPanel()}<section class="panel status-banner"><div><p class="eyebrow">${state.finalRound ? 'Utolsó kör · ' : ''}${state.turn.index + 1}/${state.turn.total}</p><h2>${escapeHtml(active?.name || '—')} · ${state.turn.character.rank}. ${escapeHtml(state.turn.character.name)}</h2><p class="muted">${escapeHtml(state.turn.character.short)}</p></div>${selfActive ? `<button data-action="end-turn" ${canEnd ? '' : 'disabled'}>Kör vége</button>` : ''}</section>${resourcePanel()}${abilityPanel()}${districtAbilityPanel()}${handPanel({ build: true })}<div class="table-grid">${state.players.map(playerCard).join('')}</div>`;
 }
 
 function renderFinished() {
