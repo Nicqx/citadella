@@ -50,6 +50,12 @@ const errors = {
   district_ability_unavailable: 'Ez a kerülethatás most nem használható.',
   district_ability_already_used: 'Ezt a kerülethatást ebben a körben már használtad.',
   invalid_district_ability: 'Ismeretlen kerülethatás.',
+  invalid_bot_count: 'A szimulált játékosok száma nem megfelelő.',
+  too_many_players: 'A valós és szimulált játékosok együtt legfeljebb nyolcan lehetnek.',
+  unique_district_selection_count: 'Pontosan 14 egyedi kerületet válassz.',
+  unknown_unique_district: 'Ismeretlen egyedi kerület került a választásba.',
+  district_cannot_be_built: 'Ezt a kerületet nem lehet megépíteni.',
+  monument_too_late: 'Az Emlékmű már nem építhető, ha legalább öt kerületed van.',
   internal_error: 'Szerverhiba történt.'
 };
 
@@ -146,18 +152,40 @@ function renderHome() {
 function lobbyRow(player, index) {
   const crowned = player.isCrowned ? '<span class="badge crown">♛ korona</span>' : '';
   const host = player.isHost ? '<span class="badge">házigazda</span>' : '';
+  const bot = player.isBot ? '<span class="badge bot-badge">🤖 szimulált</span>' : '';
   const controls = state.isHost
     ? `<div class="actions"><button class="ghost" data-action="move-up" data-player="${player.id}" ${index === 0 ? 'disabled' : ''}>↑</button><button class="ghost" data-action="move-down" data-player="${player.id}" ${index === state.players.length - 1 ? 'disabled' : ''}>↓</button><button class="secondary" data-action="crown" data-player="${player.id}">♛</button></div>`
     : '';
-  return `<div class="player-row"><div><strong>${escapeHtml(player.name)}</strong><div class="meta">${host}${crowned}</div></div>${controls}</div>`;
+  return `<div class="player-row"><div><strong>${escapeHtml(player.name)}</strong><div class="meta">${host}${bot}${crowned}</div></div>${controls}</div>`;
+}
+
+function uniqueDistrictSelector() {
+  const selected = new Set(state.selectedUniqueDistrictIds || []);
+  const catalog = state.uniqueDistrictCatalog || [];
+  const cards = catalog.map((district) => `
+    <label class="unique-option ${selected.has(district.id) ? 'selected' : ''}">
+      <input type="checkbox" name="districtId" value="${district.id}" ${selected.has(district.id) ? 'checked' : ''}>
+      <span><strong>${escapeHtml(district.name)}</strong><small>${district.cost} 🪙 · ${escapeHtml(district.effect)}</small></span>
+    </label>`).join('');
+  return `<form id="district-config-form" class="stack"><div class="section-head"><div><p class="eyebrow">Kiegészítő kerületek</p><h3>Egyedi kerületek</h3></div><span id="unique-count" class="badge">${selected.size}/14</span></div><p class="muted">A szabály szerint 14 különböző egyedi kerület kerül az 54 alapkerület mellé. Az első játék készlete van alapból kijelölve.</p><div class="unique-config-grid">${cards}</div><div class="actions"><button type="submit">14-es készlet mentése</button><button type="button" class="secondary" data-action="default-unique">Alapkészlet</button></div></form>`;
 }
 
 function renderLobby() {
   helpButton.classList.remove('hidden');
   const countOk = state.players.length >= 4 && state.players.length <= 8;
-  app.innerHTML = `${renderTopbar()}<div class="grid-2"><section class="panel stack"><div><h2>Játékosok (${state.players.length}/8)</h2><p class="muted">A sorrend az asztal körüli ülésrendet jelenti. A koronát annak add, aki először választ karaktert.</p></div><div class="lobby-list">${state.players.map(lobbyRow).join('')}</div>${state.isHost ? `<button data-action="start" ${countOk ? '' : 'disabled'}>Játék indítása</button>${countOk ? '' : '<p class="notice">Az induláshoz 4–8 játékos kell.</p>'}` : '<p class="muted">A házigazda indítja a játékot.</p>'}</section><section class="panel stack"><h2>Digitális kerületlapok</h2><p>Indításkor mindenki 4 titkos kerületlapot és 2 aranyat kap. A saját lapjaid csak a te telefonodon látszanak; a többieknél csak a kézben lévő lapok száma nyilvános.</p><p>A körödben az app vezeti a 2 arany / 2 lapból 1 választást és a kézből történő építést is.</p><p class="muted">A ? gombon mindig eléred a karakterek részletes képességeit.</p></section></div>`;
-}
+  const maxBots = Math.max(0, 8 - Number(state.humanCount || 1));
+  const botOptions = Array.from({ length: maxBots + 1 }, (_, count) =>
+    `<option value="${count}" ${count === state.botCount ? 'selected' : ''}>${count}</option>`).join('');
+  const selectedNames = (state.uniqueDistrictCatalog || [])
+    .filter((district) => (state.selectedUniqueDistrictIds || []).includes(district.id))
+    .map((district) => `<span class="badge">${escapeHtml(district.name)}</span>`).join('');
 
+  const hostSettings = state.isHost
+    ? `<section class="panel stack lobby-settings"><h2>Játékbeállítások</h2><form id="bot-form" class="inline-form"><label>Szimulált játékosok<select name="count">${botOptions}</select></label><button type="submit">Botok beállítása</button></form><p class="muted">A botok ugyanúgy karaktert választanak, nyersanyagot gyűjtenek és várost építenek. A valós + szimulált létszám együtt 4–8 lehet.</p>${uniqueDistrictSelector()}</section>`
+    : `<section class="panel stack lobby-settings"><h2>Játékbeállítások</h2><p><strong>Szimulált játékosok:</strong> ${state.botCount}</p><div><p class="eyebrow">A kiválasztott 14 egyedi kerület</p><div class="face-up">${selectedNames}</div></div><p class="muted">Ezeket a házigazda módosíthatja indulás előtt.</p></section>`;
+
+  app.innerHTML = `${renderTopbar()}<div class="grid-2"><section class="panel stack"><div><h2>Játékosok (${state.players.length}/8)</h2><p class="muted">A sorrend az asztal körüli ülésrendet jelenti. A koronát annak add, aki először választ karaktert.</p></div><div class="lobby-list">${state.players.map(lobbyRow).join('')}</div>${state.isHost ? `<button data-action="start" ${countOk ? '' : 'disabled'}>Játék indítása</button>${countOk ? '' : '<p class="notice">Az induláshoz összesen 4–8 valós vagy szimulált játékos kell.</p>'}` : '<p class="muted">A házigazda indítja a játékot.</p>'}</section><section class="panel stack"><h2>Digitális kerületlapok</h2><p>Indításkor mindenki 4 titkos kerületlapot és 2 aranyat kap. A saját lapjaid csak a te telefonodon látszanak; a többieknél csak a kézben lévő lapok száma nyilvános.</p><p>A körödben az app vezeti a nyersanyagválasztást és a kézből történő építést.</p><p class="muted">A ? gomb alatt megtalálod a játék célját, a teljes menetet, a karaktereket és az egyedi kerületek hatását.</p></section></div>${hostSettings}`;
+}
 function cardCost(card) {
   const hasFactory = state?.me?.built?.some((district) => district.id === 'factory');
   return Math.max(0, Number(card.cost || 0) - (hasFactory && card.type === 'unique' && card.id !== 'factory' ? 1 : 0));
@@ -183,19 +211,22 @@ function handCard(card, options = {}) {
 function handPanel({ build = false, selectable = false } = {}) {
   const hand = state?.me?.hand || [];
   const action = state?.turn?.action;
-  const canBuildNow = build &&
+  const canBuildPhase = build &&
     state.turn?.activePlayerId === state.me.id &&
     action?.resourceGathered &&
-    !action?.pendingDraw?.length &&
-    action.builds < action.buildLimit;
+    !action?.pendingDraw?.length;
 
-  return `<section class="panel stack hand-panel"><div class="section-head"><div><p class="eyebrow">Titkos</p><h2>A kezed · ${hand.length} lap</h2></div><span class="badge">csak te látod</span></div>${hand.length ? `<div class="hand-list">${hand.map((card) => handCard(card, {
-    build: canBuildNow,
-    selectable,
-    disabled: cardCost(card) > state.me.gold
-  })).join('')}</div>` : '<p class="muted">Nincs kerületlap a kezedben.</p>'}</section>`;
+  return `<section class="panel stack hand-panel"><div class="section-head"><div><p class="eyebrow">Titkos</p><h2>A kezed · ${hand.length} lap</h2></div><span class="badge">csak te látod</span></div>${hand.length ? `<div class="hand-list">${hand.map((card) => {
+    const limitReached = action && action.builds >= action.buildLimit && card.id !== 'stables';
+    const cannotBuild = card.id === 'secret-vault' ||
+      (card.id === 'monument' && (state.me.built || []).length >= 5);
+    return handCard(card, {
+      build: canBuildPhase,
+      selectable,
+      disabled: cardCost(card) > state.me.gold || limitReached || cannotBuild
+    });
+  }).join('')}</div>` : '<p class="muted">Nincs kerületlap a kezedben.</p>'}</section>`;
 }
-
 function renderDraft() {
   helpButton.classList.remove('hidden');
   const current = state.players.find((player) => player.id === state.draft.currentPlayerId);
@@ -220,21 +251,24 @@ function playerCard(player) {
   const controls = state.isHost
     ? `<div class="gold-controls"><button class="ghost" data-action="gold" data-player="${player.id}" data-delta="-1">−1</button><button class="secondary" data-action="gold" data-player="${player.id}" data-delta="1">+1</button></div>`
     : '';
-  return `<section class="panel player-card ${active ? 'active' : ''} ${player.id === state.me.id ? 'me' : ''}"><div class="player-head"><div><div class="player-name">${escapeHtml(player.name)}</div><div class="meta">${player.isCrowned ? '<span class="badge crown">♛</span>' : ''}${player.isHost ? '<span class="badge">host</span>' : ''}${role}</div></div><div class="meta"><span class="badge">${player.handCount} kézlap</span><span class="badge">${player.built.length} kerület</span></div></div><div class="gold-line">🪙 ${player.gold} arany</div>${controls}<div class="districts">${player.built.map(districtChip).join('') || '<span class="muted">Még nincs megépített kerület.</span>'}</div></section>`;
+  return `<section class="panel player-card ${active ? 'active' : ''} ${player.id === state.me.id ? 'me' : ''}"><div class="player-head"><div><div class="player-name">${escapeHtml(player.name)}</div><div class="meta">${player.isCrowned ? '<span class="badge crown">♛</span>' : ''}${player.isHost ? '<span class="badge">host</span>' : ''}${player.isBot ? '<span class="badge bot-badge">🤖</span>' : ''}${role}</div></div><div class="meta"><span class="badge">${player.handCount} kézlap</span><span class="badge">${player.built.length} kerület</span></div></div><div class="gold-line">🪙 ${player.gold} arany</div>${controls}<div class="districts">${player.built.map(districtChip).join('') || '<span class="muted">Még nincs megépített kerület.</span>'}</div></section>`;
 }
 
 function resourcePanel() {
   if (state.turn?.activePlayerId !== state.me.id) return '';
   const action = state.turn.action;
   if (action.pendingDraw?.length) {
-    return `<section class="panel stack action-panel"><div><p class="eyebrow">Nyersanyag</p><h2>Válassz 1 kerületlapot</h2><p class="muted">A másik lap a pakli aljára kerül.</p></div><div class="hand-list">${action.pendingDraw.map((card) => handCard(card, { keep: true })).join('')}</div></section>`;
+    return `<section class="panel stack action-panel"><div><p class="eyebrow">Nyersanyag</p><h2>Válassz 1 kerületlapot</h2><p class="muted">A többi húzott lap a pakli aljára kerül.</p></div><div class="hand-list">${action.pendingDraw.map((card) => handCard(card, { keep: true })).join('')}</div></section>`;
   }
   if (action.resourceGathered) {
     return '<section class="panel compact-panel"><span class="badge good">✓ Nyersanyag kiválasztva</span></section>';
   }
-  return `<section class="panel stack action-panel"><div><p class="eyebrow">Kötelező lépés</p><h2>Mit veszel fel?</h2></div><div class="choice-grid"><button data-action="take-resource" data-mode="gold">🪙 2 arany</button><button class="secondary" data-action="take-resource" data-mode="cards">🃏 2 lapból 1</button></div></section>`;
+  const goldAmount = (state.me.built || []).some((district) => district.id === 'gold-mine') ? 3 : 2;
+  const drawAmount = (state.me.built || []).some((district) => district.id === 'observatory') ? 3 : 2;
+  const keepAll = (state.me.built || []).some((district) => district.id === 'library');
+  const cardLabel = keepAll ? `🃏 ${drawAmount} lap, mindet megtartod` : `🃏 ${drawAmount} lapból 1`;
+  return `<section class="panel stack action-panel"><div><p class="eyebrow">Kötelező lépés</p><h2>Mit veszel fel?</h2></div><div class="choice-grid"><button data-action="take-resource" data-mode="gold">🪙 ${goldAmount} arany</button><button class="secondary" data-action="take-resource" data-mode="cards">${cardLabel}</button></div></section>`;
 }
-
 function faceUpCharactersPanel() {
   const cards = state.faceUpCharacters || [];
   if (!cards.length) return '';
@@ -270,15 +304,17 @@ function targetCharacterButtons(mode) {
 function warlordTargets() {
   const cards = [];
   for (const player of state.players) {
+    const citySize = player.built.length + (player.built.some((district) => district.id === 'monument') ? 1 : 0);
+    const hasGreatWall = player.built.some((district) => district.id === 'great-wall');
     for (const district of player.built) {
-      if (district.id === 'keep' || player.built.length >= 7) continue;
-      const cost = Math.max(0, Number(district.cost || 0) - 1);
+      if (district.id === 'keep' || citySize >= 7) continue;
+      const wallExtra = hasGreatWall && district.id !== 'great-wall' ? 1 : 0;
+      const cost = Math.max(0, Number(district.cost || 0) - 1 + wallExtra);
       cards.push(`<button class="target-district secondary" data-action="warlord-destroy" data-card="${district.cardId}" ${cost > state.me.gold ? 'disabled' : ''}><strong>${escapeHtml(player.name)} · ${escapeHtml(district.name)}</strong><span>${cost} 🪙</span></button>`);
     }
   }
   return cards.join('') || '<p class="muted">Jelenleg nincs elpusztítható kerület.</p>';
 }
-
 function abilityPanel() {
   if (state.turn?.activePlayerId !== state.me.id) return '';
   const role = state.turn.character;
@@ -381,10 +417,10 @@ function renderFinished() {
     .map((player) => {
       const score = byId.get(player.id);
       const winner = player.id === state.winnerPlayerId;
-      return `<div class="player-row score-line ${winner ? 'winner' : ''}"><strong>${winner ? '♛ ' : ''}${escapeHtml(player.name)}</strong><span class="score-number optional" title="Kerületek">${score.districtPoints}</span><span class="score-number optional" title="Típusbónusz">+${score.diversityBonus}</span><span class="score-number optional" title="Befejezés">+${score.completionBonus}</span><span class="score-number" title="Egyedi kerületek kézzel megadott bónusza">${score.manualBonus >= 0 ? '+' : ''}${score.manualBonus}</span><strong class="score-number">${score.total}</strong></div>`;
+      return `<div class="player-row score-line ${winner ? 'winner' : ''}"><strong>${winner ? '♛ ' : ''}${escapeHtml(player.name)}</strong><span class="score-number optional" title="Kerületek">${score.districtPoints}</span><span class="score-number optional" title="Típusbónusz">+${score.diversityBonus}</span><span class="score-number optional" title="Befejezés">+${score.completionBonus}</span><span class="score-number optional" title="Automatikus egyedi kerületbónusz">+${score.uniqueBonus || 0}</span><span class="score-number" title="Kézzel megadott bónusz">${score.manualBonus >= 0 ? '+' : ''}${score.manualBonus}</span><strong class="score-number">${score.total}</strong></div>`;
     }).join('');
   const myScore = byId.get(state.me.id);
-  app.innerHTML = `${renderTopbar()}${handPanel()}<section class="panel stack"><h2>Eredmény</h2><p class="muted">Az alap kerületpontok, az ötféle típus és a város befejezési bónusza automatikus. A még nem automatizált egyedi kerülethatások pontjait add meg kézzel.</p><div class="score-list">${rows}</div><form id="bonus-form" class="actions"><label>Egyedi kerületek bónuszpontja<input name="points" type="number" min="-999" max="999" value="${myScore?.manualBonus || 0}"></label><button type="submit">Saját bónusz mentése</button></form>${state.isHost ? '<div class="actions"><button data-action="start">Új játék ugyanebben a szobában</button><button class="secondary" data-action="leave-session">Új szoba létrehozása</button></div>' : '<div class="actions"><button class="secondary" data-action="leave-session">Kilépés / új szoba</button></div>'}</section>`;
+  app.innerHTML = `${renderTopbar()}${handPanel()}<section class="panel stack"><h2>Eredmény</h2><p class="muted">Az alap kerületpontok, az ötféle típus, a város befejezési bónusza és a legtöbb egyszerű egyedi kerületpont automatikus. Az összetettebb, választást igénylő hatások korrekcióját add meg kézzel.</p><div class="score-list">${rows}</div><form id="bonus-form" class="actions"><label>Egyedi kerületek bónuszpontja<input name="points" type="number" min="-999" max="999" value="${myScore?.manualBonus || 0}"></label><button type="submit">Saját bónusz mentése</button></form>${state.isHost ? '<div class="actions"><button data-action="start">Új játék ugyanebben a szobában</button><button class="secondary" data-action="leave-session">Új szoba létrehozása</button></div>' : '<div class="actions"><button class="secondary" data-action="leave-session">Kilépés / új szoba</button></div>'}</section>`;
 }
 
 function render() {
@@ -398,9 +434,62 @@ function render() {
 
 function renderHelp() {
   if (!state?.characters) return;
-  helpList.innerHTML = state.characters.map((role) => `<article class="help-item"><strong><span class="rank">${role.rank}</span>${escapeHtml(role.name)}</strong><p>${escapeHtml(role.detail)}</p></article>`).join('');
-}
+  const characters = state.characters.map((role) => `<article class="help-item"><strong><span class="rank">${role.rank}</span>${escapeHtml(role.name)}</strong><p>${escapeHtml(role.detail)}</p></article>`).join('');
+  const selected = new Set(state.selectedUniqueDistrictIds || []);
+  const districts = (state.uniqueDistrictCatalog || []).map((district) => `<article class="help-item ${selected.has(district.id) ? 'selected-help' : ''}"><strong>${escapeHtml(district.name)} · ${district.cost} 🪙 ${selected.has(district.id) ? '<span class="badge good">ebben a játékban</span>' : ''}</strong><p>${escapeHtml(district.effect)}</p></article>`).join('');
 
+  helpList.innerHTML = `
+    <details class="rules-section" open>
+      <summary>🎯 A játék célja és vége</summary>
+      <div class="rules-body">
+        <p>A cél a legértékesebb középkori város felépítése. A játék abban a körben ér véget, amelyben egy város először eléri a 7 kerületet; a teljes aktuális kör még lefut.</p>
+        <p><strong>Pontozás:</strong> a felépített kerületek nyomtatott értéke, +3 pont ha mind az öt kerülettípusból van legalább egy, +4 pont az elsőként befejezett városnak, +2 pont minden más befejezett városnak, valamint az egyedi kerületek bónuszai. Az Emlékmű a város befejezésénél két kerületnek számít.</p>
+      </div>
+    </details>
+    <details class="rules-section">
+      <summary>🏗️ Előkészítés</summary>
+      <div class="rules-body">
+        <p>Az alkalmazás 4–8 résztvevővel játszik; a hiányzó helyeket szimulált játékosok tölthetik ki. Minden játékos 4 titkos kerületlapot és 2 aranyat kap. Az 54 alapkerület mellé pontosan 14 egyedi kerület kerül a pakliba.</p>
+        <p>A koronás játékos kezdi a karakterválasztást. A sorrend az asztal körüli ülésrend, amit a lobbyban lehet beállítani.</p>
+      </div>
+    </details>
+    <details class="rules-section">
+      <summary>🎭 Karakterválasztási fázis</summary>
+      <div class="rules-body">
+        <p>A karakterpakliból a játékosszámtól függően bizonyos lapok nyíltan, egy lap pedig titkosan félrekerül. A 4-es rangú karakter nem kerülhet nyíltan félretett lapként az asztalra. A nyíltan félretett karakterek az egész körben láthatók.</p>
+        <p>A koronás játékos választ először titokban, majd az ülésrend szerint következnek a többiek. Hét- és nyolcfős játékban az utolsó választó a megmaradt nyílt lehetőség és a kezdeti titkos félretett lap közül választhat.</p>
+      </div>
+    </details>
+    <details class="rules-section">
+      <summary>🔄 A köröd menete</summary>
+      <div class="rules-body">
+        <p>A karaktereket rang szerint, 1-től felfelé szólítják. Amikor a karaktered sorra kerül, felfeded és végrehajtod a körödet.</p>
+        <ol>
+          <li><strong>Nyersanyag:</strong> kötelezően választasz 2 aranyat, vagy húzol 2 kerületlapot és egyet megtartasz. Egyedi kerületek ezt módosíthatják, például az Aranybánya, Csillagvizsgáló vagy Könyvtár.</li>
+          <li><strong>Karakterképesség:</strong> a karaktered képességét a megengedett időpontban, általában körönként egyszer használhatod.</li>
+          <li><strong>Építés:</strong> normál esetben legfeljebb 1 kerületet építhetsz a kezedből az ár kifizetésével. Azonos nevű kerületből nem építhetsz még egyet, kivéve ha a Kőfejtő engedi. Az Építész legfeljebb 3 kerületet építhet.</li>
+        </ol>
+      </div>
+    </details>
+    <details class="rules-section">
+      <summary>🏘️ Kerülettípusok és egyedi kerületek</summary>
+      <div class="rules-body">
+        <p>Öt típus van: <strong>nemesi, egyházi, kereskedelmi, katonai és egyedi</strong>. A színes kerülettípusokra több karakter bevételi képessége hivatkozik. Az egyedi kerületek külön szabályt adnak; hatásuk általában opcionális, kivéve ha a szöveg kötelezően fogalmaz.</p>
+        <p class="muted">Az alábbi 30 egyedi kerületből a lobbyban 14 választható. A zöld jelölés mutatja az aktuális játék készletét.</p>
+        <div class="help-card-grid">${districts}</div>
+      </div>
+    </details>
+    <details class="rules-section">
+      <summary>👑 Karakterek</summary>
+      <div class="rules-body"><div class="help-card-grid">${characters}</div></div>
+    </details>
+    <details class="rules-section">
+      <summary>🤖 Szimulált játékosok</summary>
+      <div class="rules-body">
+        <p>A botok teljes játékoshelyet foglalnak: titokban karaktert választanak, nyersanyagot vesznek fel és automatikusan építenek. A céljuk egyszerű, szabályos játék, nem tökéletes stratégia. A botok ugyanúgy lehetnek Orgyilkos, Tolvaj, Király stb., és a korona is kerülhet hozzájuk.</p>
+      </div>
+    </details>`;
+}
 async function refresh() {
   if (!auth?.code) return;
   try {
@@ -472,7 +561,15 @@ app.addEventListener('submit', async (event) => {
   try {
     if (form.id === 'create-form') await createSession(form);
     else if (form.id === 'join-form') await joinSession(form);
-    else if (form.id === 'bonus-form') {
+    else if (form.id === 'bot-form') {
+      const data = new FormData(form);
+      await post(`/session/${state.code}/bots`, { count: Number(data.get('count')) });
+    } else if (form.id === 'district-config-form') {
+      const data = new FormData(form);
+      const districtIds = data.getAll('districtId').map(String);
+      if (districtIds.length !== 14) throw Object.assign(new Error('unique_district_selection_count'), { code: 'unique_district_selection_count' });
+      await post(`/session/${state.code}/config/unique-districts`, { districtIds });
+    } else if (form.id === 'bonus-form') {
       const data = new FormData(form);
       await post(`/session/${state.code}/score/bonus`, {
         points: Number(data.get('points'))
@@ -497,6 +594,10 @@ app.addEventListener('click', async (event) => {
     } else if (action === 'finish-game') {
       if (!confirm('Biztosan befejezed a játékot? Mindenki a végeredmény képernyőre kerül.')) return;
       await post(`/session/${state.code}/finish`);
+    } else if (action === 'default-unique') {
+      await post(`/session/${state.code}/config/unique-districts`, {
+        districtIds: state.defaultUniqueDistrictIds
+      });
     } else if (action === 'start') {
       await post(`/session/${state.code}/start`);
     } else if (action === 'crown') {
@@ -570,6 +671,14 @@ app.addEventListener('click', async (event) => {
   } catch (err) {
     showToast(errors[err.code] || err.code || err.message);
   }
+});
+
+app.addEventListener('change', (event) => {
+  if (!event.target.matches('#district-config-form input[name="districtId"]')) return;
+  const form = document.getElementById('district-config-form');
+  const count = form ? form.querySelectorAll('input[name="districtId"]:checked').length : 0;
+  const badge = document.getElementById('unique-count');
+  if (badge) badge.textContent = `${count}/14`;
 });
 
 helpButton.addEventListener('click', () => helpDialog.showModal());
