@@ -138,6 +138,7 @@ function districtPublic(card) {
     cost: card.cost,
     effect: card.effect || null,
     beautified: Boolean(card.beautified),
+    storedCardCount: Array.isArray(card.storedCards) ? card.storedCards.length : Number(card.storedCardCount || 0),
     builtAtRound: card.builtAtRound || null
   };
 }
