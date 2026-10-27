@@ -31,7 +31,6 @@ const BASE_PATH = normalizeBasePath(process.env.BASE_PATH || '/citadella');
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
 const SESSION_TTL_SECONDS = Math.max(900, Number(process.env.SESSION_TTL_SECONDS || 21600));
 const MAX_GOLD = 999;
-const MAX_BONUS = 999;
 
 const app = express();
 const api = express.Router();
@@ -112,7 +111,6 @@ function ensurePlayerFields(player) {
   if (!Array.isArray(player.built)) player.built = [];
   if (!Array.isArray(player.hand)) player.hand = [];
   if (!Number.isInteger(player.gold)) player.gold = Number(player.gold || 0);
-  if (!Number.isInteger(player.manualBonus)) player.manualBonus = Number(player.manualBonus || 0);
   player.isBot = Boolean(player.isBot);
   return player;
 }
@@ -248,7 +246,6 @@ function playerView(session, player, actor) {
     built: player.built.map(districtPublic),
     handCount: player.hand.length,
     ...(self ? { hand: player.hand.map(districtPublic) } : {}),
-    manualBonus: session.phase === 'finished' ? player.manualBonus : undefined,
     character: canSeeCharacter && player.characterId ? characterPublic(player.characterId) : null,
     hasCharacter: Boolean(player.characterId),
     isCrowned: player.id === session.crownPlayerId,
@@ -350,7 +347,6 @@ function initializePlayerForGame(player) {
   player.built = [];
   player.hand = [];
   player.characterId = null;
-  player.manualBonus = 0;
 }
 
 function setupDistrictDeck(session) {
@@ -577,8 +573,7 @@ function setBotCount(session, requestedCount) {
       gold: 0,
       built: [],
       hand: [],
-      characterId: null,
-      manualBonus: 0
+      characterId: null
     });
   }
 
@@ -713,6 +708,25 @@ function botBuild(session, actor, current, action, notes) {
   }
 }
 
+function botUseMuseum(actor, action, notes) {
+  const museum = actor.built.find((district) => district.id === 'museum');
+  if (!museum || action.districtUses?.museum) return;
+
+  const candidates = actor.hand
+    .map((card, index) => ({ card, index }))
+    .filter(({ card }) => card.id !== 'secret-vault')
+    .sort((a, b) => Number(a.card.cost || 0) - Number(b.card.cost || 0));
+  const choice = candidates[0];
+  if (!choice) return;
+
+  const [stored] = actor.hand.splice(choice.index, 1);
+  if (!Array.isArray(museum.storedCards)) museum.storedCards = [];
+  museum.storedCards.push(stored);
+  action.districtUses = action.districtUses || {};
+  action.districtUses.museum = true;
+  notes.push('A Múzeum alá tett 1 kerületlapot (+1 játékvégi pont).');
+}
+
 function playBotTurn(session, actor) {
   const current = activeTurn(session);
   const action = activeAction(session);
@@ -726,6 +740,7 @@ function playBotTurn(session, actor) {
   botGatherResource(session, actor, action, notes);
   botUseCharacterAbility(session, actor, current, action, notes);
   botBuild(session, actor, current, action, notes);
+  botUseMuseum(actor, action, notes);
   addBotAction(session, actor, current.characterId, notes);
   endCurrentTurn(session);
 }
@@ -795,7 +810,6 @@ api.post('/session', async (req, res, next) => {
       built: [],
       hand: [],
       characterId: null,
-      manualBonus: 0,
       isBot: false
     };
     const session = {
@@ -849,7 +863,6 @@ api.post('/session/:code/join', async (req, res, next) => {
         built: [],
         hand: [],
         characterId: null,
-        manualBonus: 0,
         isBot: false
       });
       await saveSession(session);
@@ -1141,6 +1154,9 @@ api.post('/session/:code/turn/ability', async (req, res, next) => {
         if (actor.gold < destroyCost) throw httpError(409, 'not_enough_gold');
         actor.gold -= destroyCost;
         const [destroyed] = found.owner.built.splice(found.index, 1);
+        if (destroyed.id === 'museum' && Array.isArray(destroyed.storedCards)) {
+          putOnDeckBottom(session, destroyed.storedCards);
+        }
         putOnDeckBottom(session, [destroyed]);
         action.destructionUsed = true;
       } else {
@@ -1186,6 +1202,19 @@ api.post('/session/:code/turn/district-ability', async (req, res, next) => {
         actor.gold -= 2;
         actor.hand.push(...drawCards(session, 3));
         action.districtUses.smithy = true;
+      } else if (districtId === 'museum') {
+        const museum = actor.built.find((district) => district.id === 'museum');
+        if (!museum) throw httpError(409, 'district_ability_unavailable');
+        if (action.districtUses.museum) throw httpError(409, 'district_ability_already_used');
+
+        const cardId = String(req.body.cardId || '');
+        const cardIndex = actor.hand.findIndex((card) => card.cardId === cardId);
+        if (cardIndex < 0) throw httpError(404, 'district_not_in_hand');
+
+        const [stored] = actor.hand.splice(cardIndex, 1);
+        if (!Array.isArray(museum.storedCards)) museum.storedCards = [];
+        museum.storedCards.push(stored);
+        action.districtUses.museum = true;
       } else {
         throw httpError(400, 'invalid_district_ability');
       }
@@ -1258,7 +1287,11 @@ api.delete('/session/:code/district/:districtId', async (req, res, next) => {
       const owner = session.players.find((p) => p.built.some((d) => d.cardId === req.params.districtId));
       if (!owner) throw httpError(404, 'district_not_found');
       if (owner.id !== actor.id && actor.id !== session.hostPlayerId) throw httpError(403, 'not_allowed');
-      owner.built = owner.built.filter((d) => d.cardId !== req.params.districtId);
+      const index = owner.built.findIndex((district) => district.cardId === req.params.districtId);
+      const [removed] = owner.built.splice(index, 1);
+      if (removed?.id === 'museum' && Array.isArray(removed.storedCards)) {
+        putOnDeckBottom(session, removed.storedCards);
+      }
       await saveSession(session);
     });
     res.json({ ok: true });
@@ -1273,24 +1306,6 @@ api.post('/session/:code/turn/end', async (req, res, next) => {
       requireActiveActor(session, actor);
       endCurrentTurn(session);
       runBots(session);
-      await saveSession(session);
-    });
-    res.json({ ok: true });
-  } catch (err) { next(err); }
-});
-
-api.post('/session/:code/score/bonus', async (req, res, next) => {
-  try {
-    await withLock(req.params.code, async () => {
-      const session = requireSession(await loadSession(req.params.code));
-      const actor = authPlayer(session, req);
-      if (session.phase !== 'finished') throw httpError(409, 'finished_only');
-      const targetId = String(req.body.playerId || actor.id);
-      const target = getPlayer(session, targetId);
-      if (!target) throw httpError(404, 'player_not_found');
-      if (target.id !== actor.id && actor.id !== session.hostPlayerId) throw httpError(403, 'not_allowed');
-      target.manualBonus = clampInt(req.body.points, -MAX_BONUS, MAX_BONUS, 'invalid_bonus');
-      session.winnerPlayerId = calculateWinner(session);
       await saveSession(session);
     });
     res.json({ ok: true });
