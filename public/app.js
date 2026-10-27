@@ -605,8 +605,14 @@ app.addEventListener('submit', async (event) => {
     } else if (form.id === 'district-config-form') {
       const data = new FormData(form);
       const districtIds = data.getAll('districtId').map(String);
-      if (districtIds.length !== 14) throw Object.assign(new Error('unique_district_selection_count'), { code: 'unique_district_selection_count' });
+      if (districtIds.length !== 14) {
+        throw Object.assign(
+          new Error('unique_district_selection_count'),
+          { code: 'unique_district_selection_count' }
+        );
+      }
       await post(`/session/${state.code}/config/unique-districts`, { districtIds });
+    }
   } catch (err) {
     showToast(errors[err.code] || (err.message === 'invalid_code'
       ? 'A szobakód öt számjegyből áll.'
