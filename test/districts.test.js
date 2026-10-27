@@ -6,6 +6,7 @@ const {
   UNIQUE_DISTRICTS,
   DEFAULT_UNIQUE_DISTRICT_IDS,
   createDistrictDeck,
+  districtPublic,
   effectiveBuildCost,
   canBuildDuplicate
 } = require('../districts');
@@ -33,8 +34,7 @@ test('starting a district game deals four private cards to every player', () => 
       gold: 0,
       built: [],
       hand: [],
-      characterId: null,
-      manualBonus: 0
+      characterId: null
     })),
     districtDeck: [],
     selectedUniqueDistrictIds: [...DEFAULT_UNIQUE_DISTRICT_IDS]
@@ -82,4 +82,19 @@ test('custom unique district selection controls the 14 unique cards in the deck'
 test('district deck rejects a selection that is not exactly 14 distinct known cards', () => {
   assert.throws(() => createDistrictDeck(DEFAULT_UNIQUE_DISTRICT_IDS.slice(0, 13)), /unique_district_selection_count/);
   assert.throws(() => createDistrictDeck([...DEFAULT_UNIQUE_DISTRICT_IDS.slice(0, 13), 'missing-card']), /unknown_unique_district/);
+});
+
+
+test('districtPublic exposes Museum stored-card count without revealing stored cards', () => {
+  const view = districtPublic({
+    cardId: 'museum_1',
+    id: 'museum',
+    name: 'Múzeum',
+    type: 'unique',
+    cost: 4,
+    storedCards: [{ cardId: 'a' }, { cardId: 'b' }]
+  });
+
+  assert.equal(view.storedCardCount, 2);
+  assert.equal(Object.hasOwn(view, 'storedCards'), false);
 });
