@@ -2,7 +2,14 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { stateView, targetableCharacterIds } = require('../server');
+const {
+  stateView,
+  targetableCharacterIds,
+  cityCompletionCount,
+  validateUniqueDistrictSelection,
+  setBotCount
+} = require('../server');
+const { DEFAULT_UNIQUE_DISTRICT_IDS } = require('../districts');
 
 function makePlayer(id, name, seatIndex) {
   return {
@@ -14,7 +21,8 @@ function makePlayer(id, name, seatIndex) {
     built: [],
     hand: [],
     characterId: null,
-    manualBonus: 0
+    manualBonus: 0,
+    isBot: false
   };
 }
 
@@ -28,6 +36,7 @@ function makeSession(players) {
     hostPlayerId: players[0].id,
     crownPlayerId: players[0].id,
     players,
+    selectedUniqueDistrictIds: [...DEFAULT_UNIQUE_DISTRICT_IDS],
     districtDeck: [],
     draft: null,
     turn: null,
@@ -110,4 +119,45 @@ test('Assassin and Thief cannot target face-up discarded characters', () => {
   assert.equal(thiefTargets.has('king'), false);
   assert.equal(thiefTargets.has('bishop'), false);
   assert.equal(thiefTargets.has('warlord'), true);
+});
+
+
+test('host can configure simulated players up to eight total participants', () => {
+  const humans = [makePlayer('p0', 'A', 0), makePlayer('p1', 'B', 1)];
+  const session = makeSession(humans);
+
+  setBotCount(session, 3);
+  assert.equal(session.players.length, 5);
+  assert.equal(session.players.filter((player) => player.isBot).length, 3);
+  assert.deepEqual(session.players.map((player) => player.seatIndex), [0, 1, 2, 3, 4]);
+
+  setBotCount(session, 1);
+  assert.equal(session.players.length, 3);
+  assert.equal(session.players.filter((player) => player.isBot).length, 1);
+
+  assert.throws(() => setBotCount(session, 7), /too_many_players/);
+});
+
+test('unique district setup accepts exactly fourteen known districts', () => {
+  assert.deepEqual(
+    validateUniqueDistrictSelection(DEFAULT_UNIQUE_DISTRICT_IDS),
+    DEFAULT_UNIQUE_DISTRICT_IDS
+  );
+  assert.throws(
+    () => validateUniqueDistrictSelection(DEFAULT_UNIQUE_DISTRICT_IDS.slice(0, 13)),
+    /unique_district_selection_count/
+  );
+});
+
+test('Monument counts as two districts toward completed city size', () => {
+  const player = makePlayer('p0', 'A', 0);
+  player.built = [
+    { id: 'monument' },
+    { id: 'a' },
+    { id: 'b' },
+    { id: 'c' },
+    { id: 'd' },
+    { id: 'e' }
+  ];
+  assert.equal(cityCompletionCount(player), 7);
 });

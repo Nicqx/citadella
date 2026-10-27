@@ -58,5 +58,43 @@ test('score includes districts, diversity, completion and manual unique bonus', 
     { cost: 4, type: 'military' }, { cost: 5, type: 'unique' }, { cost: 1, type: 'noble' }, { cost: 1, type: 'trade' }
   ] };
   const score = scorePlayer(player, { firstCompletedPlayerId: 'p1' });
-  assert.deepEqual(score, { districtPoints: 17, diversityBonus: 3, completionBonus: 4, manualBonus: 2, total: 26 });
+  assert.deepEqual(score, { districtPoints: 17, diversityBonus: 3, completionBonus: 4, uniqueBonus: 0, manualBonus: 2, total: 26 });
+});
+
+
+test('Monument counts as two districts for city completion', () => {
+  const player = {
+    id: 'p1',
+    gold: 0,
+    hand: [],
+    manualBonus: 0,
+    built: [
+      { id: 'monument', cost: 4, type: 'unique' },
+      { id: 'temple', cost: 1, type: 'religious' },
+      { id: 'market', cost: 2, type: 'trade' },
+      { id: 'castle', cost: 4, type: 'noble' },
+      { id: 'prison', cost: 2, type: 'military' },
+      { id: 'tavern', cost: 1, type: 'trade' }
+    ]
+  };
+  const score = scorePlayer(player, { firstCompletedPlayerId: 'p1', crownPlayerId: 'p2' });
+  assert.equal(score.completionBonus, 4);
+});
+
+test('straightforward unique district end-game bonuses are automatic', () => {
+  const player = {
+    id: 'p1',
+    gold: 3,
+    hand: [{ id: 'secret-vault' }, { id: 'market' }],
+    manualBonus: 0,
+    built: [
+      { id: 'dragon-gate', cost: 6, type: 'unique' },
+      { id: 'imperial-treasury', cost: 5, type: 'unique' },
+      { id: 'map-room', cost: 5, type: 'unique' },
+      { id: 'statue', cost: 3, type: 'unique' },
+      { id: 'wishing-well', cost: 5, type: 'unique' }
+    ]
+  };
+  const score = scorePlayer(player, { firstCompletedPlayerId: null, crownPlayerId: 'p1' });
+  assert.equal(score.uniqueBonus, 20);
 });

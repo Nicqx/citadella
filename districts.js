@@ -26,63 +26,55 @@ const BASIC_DISTRICTS = Object.freeze([
 ]);
 
 const UNIQUE_DISTRICTS = Object.freeze([
-  {
-    id: 'dragon-gate', name: 'Dragon Gate', type: 'unique', cost: 6,
-    effect: 'A játék végén további 2 pontot ér.'
-  },
-  {
-    id: 'factory', name: 'Factory', type: 'unique', cost: 5,
-    effect: 'A többi egyedi kerület megépítése 1 arannyal olcsóbb.'
-  },
-  {
-    id: 'haunted-quarter', name: 'Haunted Quarter', type: 'unique', cost: 2,
-    effect: 'A végső pontozáskor egy választott kerülettípusnak számíthat.'
-  },
-  {
-    id: 'imperial-treasury', name: 'Imperial Treasury', type: 'unique', cost: 5,
-    effect: 'A játék végén plusz pontot adhat a megmaradt aranyad után.'
-  },
-  {
-    id: 'keep', name: 'Keep', type: 'unique', cost: 3,
-    effect: 'A 8-as rangú karakter nem pusztíthatja el.'
-  },
-  {
-    id: 'laboratory', name: 'Laboratory', type: 'unique', cost: 5,
-    effect: 'Körönként egyszer egy kézlap eldobásával 2 arany szerezhető.'
-  },
-  {
-    id: 'library', name: 'Library', type: 'unique', cost: 6,
-    effect: 'Ha kerületlapot húzol nyersanyagként, mindkét húzott lapot megtarthatod.'
-  },
-  {
-    id: 'map-room', name: 'Map Room', type: 'unique', cost: 5,
-    effect: 'A játék végén plusz pontot adhat a kézben maradt lapjaid után.'
-  },
-  {
-    id: 'quarry', name: 'Quarry', type: 'unique', cost: 5,
-    effect: 'Lehetővé teszi azonos nevű kerületek megépítését.'
-  },
-  {
-    id: 'school-of-magic', name: 'School of Magic', type: 'unique', cost: 6,
-    effect: 'Karakterbevételnél egy választott színű kerületnek számíthat.'
-  },
-  {
-    id: 'smithy', name: 'Smithy', type: 'unique', cost: 5,
-    effect: 'Körönként egyszer 2 aranyért 3 kerületlap húzható.'
-  },
-  {
-    id: 'statue', name: 'Statue', type: 'unique', cost: 3,
-    effect: 'A játék végén plusz pontot adhat, ha nálad van a korona.'
-  },
-  {
-    id: 'thieves-den', name: "Thieves' Den", type: 'unique', cost: 6,
-    effect: 'A költség egy része kézlapok eldobásával is kifizethető.'
-  },
-  {
-    id: 'wishing-well', name: 'Wishing Well', type: 'unique', cost: 5,
-    effect: 'A játék végén plusz pontot adhat az egyedi kerületeid után.'
-  }
+  { id: 'armory', name: 'Fegyvertár', type: 'unique', cost: 3, effect: 'A körödben elpusztíthatod a Fegyvertárat, hogy elpusztíts egy másik kerületet.' },
+  { id: 'basilica', name: 'Bazilika', type: 'unique', cost: 4, effect: 'Játékvégén +1 pont minden páratlan építési költségű kerületed után.' },
+  { id: 'capitol', name: 'Capitolium', type: 'unique', cost: 5, effect: 'Játékvégén +3 pont, ha legalább 3 azonos típusú kerületed van.' },
+  { id: 'dragon-gate', name: 'Sárkánykapu', type: 'unique', cost: 6, effect: 'A játék végén további 2 pontot ér.' },
+  { id: 'factory', name: 'Gyár', type: 'unique', cost: 5, effect: 'A többi egyedi kerület megépítése 1 arannyal olcsóbb.' },
+  { id: 'framework', name: 'Állványzat', type: 'unique', cost: 3, effect: 'Egy kerületet az Állványzat elpusztításával is megépíthetsz a költség kifizetése helyett.' },
+  { id: 'gold-mine', name: 'Aranybánya', type: 'unique', cost: 6, effect: 'Ha nyersanyagként aranyat választasz, 1 extra aranyat kapsz.' },
+  { id: 'great-wall', name: 'Nagy fal', type: 'unique', cost: 6, effect: 'A 8-as rangú karakter 1 arannyal többet fizet, ha másik kerületedre használja a képességét.' },
+  { id: 'haunted-quarter', name: 'Kísértetváros', type: 'unique', cost: 2, effect: 'A végső pontozáskor egy választott, nem egyedi kerülettípusnak számíthat.' },
+  { id: 'imperial-treasury', name: 'Birodalmi kincstár', type: 'unique', cost: 5, effect: 'Játékvégén +1 pont minden megmaradt aranyad után.' },
+  { id: 'ivory-tower', name: 'Elefántcsonttorony', type: 'unique', cost: 5, effect: 'Játékvégén +5 pont, ha ez az egyetlen egyedi kerület a városodban.' },
+  { id: 'keep', name: 'Erődítmény', type: 'unique', cost: 3, effect: 'A 8-as rangú karakter nem használhatja rá a képességét.' },
+  { id: 'laboratory', name: 'Laboratórium', type: 'unique', cost: 5, effect: 'Körönként egyszer egy kézlap eldobásával 2 arany szerezhető.' },
+  { id: 'library', name: 'Könyvtár', type: 'unique', cost: 6, effect: 'Ha kerületlapot húzol nyersanyagként, minden húzott lapot megtarthatsz.' },
+  { id: 'map-room', name: 'Térképszoba', type: 'unique', cost: 5, effect: 'Játékvégén +1 pont minden kézben maradt lapod után.' },
+  { id: 'monument', name: 'Emlékmű', type: 'unique', cost: 4, effect: '5 vagy több kerülettel már nem építhető; a város befejezésénél 2 kerületnek számít.' },
+  { id: 'museum', name: 'Múzeum', type: 'unique', cost: 4, effect: 'Körönként egyszer egy kézlapot képpel lefelé alátehetsz; játékvégén mindegyik ilyen lap +1 pont.' },
+  { id: 'necropolis', name: 'Temető', type: 'unique', cost: 5, effect: 'Megépíthető egy saját kerület elpusztításával az aranyköltség helyett.' },
+  { id: 'observatory', name: 'Csillagvizsgáló', type: 'unique', cost: 4, effect: 'Lapnyersanyagnál 3 lapot húzol 2 helyett.' },
+  { id: 'park', name: 'Park', type: 'unique', cost: 6, effect: 'Ha a köröd végén nincs kézlapod, húzz 2 lapot.' },
+  { id: 'poor-house', name: 'Szegényház', type: 'unique', cost: 4, effect: 'Ha a köröd végén nincs aranyad, kapsz 1 aranyat.' },
+  { id: 'quarry', name: 'Kőfejtő', type: 'unique', cost: 5, effect: 'Lehetővé teszi azonos nevű kerületek megépítését.' },
+  { id: 'school-of-magic', name: 'Varázstanoda', type: 'unique', cost: 6, effect: 'Karakterbevételnél egy választott színű kerületnek számíthat.' },
+  { id: 'secret-vault', name: 'Titkos kripta', type: 'unique', cost: 0, effect: 'Nem építhető meg; ha játékvégén a kezedben van, +3 pontot ér.' },
+  { id: 'smithy', name: 'Kovácsműhely', type: 'unique', cost: 5, effect: 'Körönként egyszer 2 aranyért 3 kerületlap húzható.' },
+  { id: 'stables', name: 'Istálló', type: 'unique', cost: 2, effect: 'Megépítése nem számít bele a köröd építési korlátjába.' },
+  { id: 'statue', name: 'Szobor', type: 'unique', cost: 3, effect: 'Ha a játék végén nálad van a korona, +5 pontot ér.' },
+  { id: 'theater', name: 'Színház', type: 'unique', cost: 6, effect: 'A kiválasztási fázis végén elcserélheted karakteredet egy ellenfélére.' },
+  { id: 'thieves-den', name: 'Tolvajtanya', type: 'unique', cost: 6, effect: 'Építési költségét részben vagy egészben kézlapok eldobásával is fizetheted: 1 lap = 1 arany.' },
+  { id: 'wishing-well', name: 'Kívánságkút', type: 'unique', cost: 5, effect: 'Játékvégén +1 pont minden egyedi kerületed után, önmagát is beleszámítva.' }
 ]);
+
+const DEFAULT_UNIQUE_DISTRICT_IDS = Object.freeze([
+  'dragon-gate',
+  'factory',
+  'haunted-quarter',
+  'imperial-treasury',
+  'keep',
+  'laboratory',
+  'library',
+  'map-room',
+  'quarry',
+  'school-of-magic',
+  'smithy',
+  'statue',
+  'thieves-den',
+  'wishing-well'
+]);
+
 
 function shuffle(array) {
   const copy = [...array];
@@ -93,7 +85,17 @@ function shuffle(array) {
   return copy;
 }
 
-function createDistrictDeck() {
+function createDistrictDeck(uniqueDistrictIds = DEFAULT_UNIQUE_DISTRICT_IDS) {
+  const selectedIds = Array.isArray(uniqueDistrictIds) ? [...uniqueDistrictIds] : [];
+  if (selectedIds.length !== 14 || new Set(selectedIds).size !== 14) {
+    throw new Error('unique_district_selection_count');
+  }
+  const uniqueById = new Map(UNIQUE_DISTRICTS.map((district) => [district.id, district]));
+  const selectedUniqueDistricts = selectedIds.map((districtId) => uniqueById.get(districtId));
+  if (selectedUniqueDistricts.some((district) => !district)) {
+    throw new Error('unknown_unique_district');
+  }
+
   let serial = 0;
   const cards = [];
 
@@ -111,7 +113,7 @@ function createDistrictDeck() {
     }
   }
 
-  for (const district of UNIQUE_DISTRICTS) {
+  for (const district of selectedUniqueDistricts) {
     serial += 1;
     cards.push({
       cardId: `${district.id}_${serial}`,
@@ -175,6 +177,7 @@ function canBuildDuplicate(player, card) {
 module.exports = {
   BASIC_DISTRICTS,
   UNIQUE_DISTRICTS,
+  DEFAULT_UNIQUE_DISTRICT_IDS,
   createDistrictDeck,
   districtPublic,
   drawCards,

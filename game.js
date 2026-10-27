@@ -155,13 +155,40 @@ function scorePlayer(player, session) {
   const districtPoints = player.built.reduce((sum, d) => sum + Number(d.cost || 0) + (d.beautified ? 1 : 0), 0);
   const types = new Set(player.built.map((d) => d.type));
   const diversityBonus = DISTRICT_TYPES.every((t) => types.has(t.id)) ? 3 : 0;
+  const has = (districtId) => player.built.some((district) => district.id === districtId);
+  const citySize = player.built.length + (has('monument') ? 1 : 0);
+
   let completionBonus = 0;
-  if (player.built.length >= 7) {
+  if (citySize >= 7) {
     completionBonus = session.firstCompletedPlayerId === player.id ? 4 : 2;
   }
+
+  let uniqueBonus = 0;
+  if (has('dragon-gate')) uniqueBonus += 2;
+  if (has('imperial-treasury')) uniqueBonus += Number(player.gold || 0);
+  if (has('map-room')) uniqueBonus += Array.isArray(player.hand) ? player.hand.length : 0;
+  if (has('statue') && session.crownPlayerId === player.id) uniqueBonus += 5;
+  if (has('basilica')) {
+    uniqueBonus += player.built.filter((district) => Number(district.cost || 0) % 2 === 1).length;
+  }
+  if (has('capitol')) {
+    const counts = new Map();
+    for (const district of player.built) counts.set(district.type, (counts.get(district.type) || 0) + 1);
+    if ([...counts.values()].some((count) => count >= 3)) uniqueBonus += 3;
+  }
+  if (has('ivory-tower') && player.built.filter((district) => district.type === 'unique').length === 1) {
+    uniqueBonus += 5;
+  }
+  if (has('wishing-well')) {
+    uniqueBonus += player.built.filter((district) => district.type === 'unique').length;
+  }
+  if (Array.isArray(player.hand) && player.hand.some((district) => district.id === 'secret-vault')) {
+    uniqueBonus += 3;
+  }
+
   const manualBonus = Number(player.manualBonus || 0);
-  const total = districtPoints + diversityBonus + completionBonus + manualBonus;
-  return { districtPoints, diversityBonus, completionBonus, manualBonus, total };
+  const total = districtPoints + diversityBonus + completionBonus + uniqueBonus + manualBonus;
+  return { districtPoints, diversityBonus, completionBonus, uniqueBonus, manualBonus, total };
 }
 
 module.exports = {

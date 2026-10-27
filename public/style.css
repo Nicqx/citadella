@@ -87,7 +87,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .help-item p { color: #c6d1df; line-height: 1.5; margin: 8px 0 0; }
 .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(20px); opacity: 0; pointer-events: none; background: #0d141e; border: 1px solid #556b88; color: var(--text); border-radius: 10px; padding: 10px 14px; transition: .18s ease; z-index: 30; max-width: calc(100% - 32px); }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-.score-line { display: grid; grid-template-columns: minmax(120px, 1fr) repeat(5, auto); gap: 8px; align-items: center; }
+.score-line { display: grid; grid-template-columns: minmax(120px, 1fr) repeat(6, auto); gap: 8px; align-items: center; }
 .score-line strong { font-size: 1.08rem; }
 .score-number { min-width: 38px; text-align: right; font-variant-numeric: tabular-nums; }
 .winner { border-color: var(--gold); background: #2b2618; }
@@ -197,4 +197,50 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   .district-ability-row { align-items: stretch; flex-direction: column; }
   .inline-control { align-items: stretch; flex-direction: column; }
   .inline-control select { min-width: 0; width: 100%; }
+}
+
+
+/* Lobby setup, bots and full rules */
+.bot-badge { color: var(--accent); border-color: #4b6688; }
+.lobby-settings { margin-top: 14px; }
+.inline-form { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; }
+.inline-form label { min-width: 180px; flex: 1; }
+.unique-config-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px;
+  max-height: 460px;
+  overflow: auto;
+  padding-right: 4px;
+}
+.unique-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  padding: 9px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #111925;
+  color: var(--text);
+}
+.unique-option input { width: 18px; min-height: 18px; margin-top: 2px; }
+.unique-option span { min-width: 0; }
+.unique-option strong { display: block; color: var(--text); }
+.unique-option small { display: block; color: var(--muted); line-height: 1.35; margin-top: 3px; }
+.unique-option:has(input:checked) { border-color: #537d69; background: #14241e; }
+.rules-section { border: 1px solid #34465d; border-radius: 12px; background: #111925; overflow: hidden; }
+.rules-section summary { cursor: pointer; padding: 13px; font-weight: 900; user-select: none; }
+.rules-body { padding: 0 13px 13px; line-height: 1.55; color: #d7e0ec; }
+.rules-body p:last-child, .rules-body ol:last-child { margin-bottom: 0; }
+.rules-body ol { padding-left: 22px; }
+.help-card-grid { display: grid; gap: 8px; margin-top: 10px; }
+.selected-help { border-color: #43735e; background: #14241e; }
+.face-up-panel { margin-bottom: 12px; }
+
+@media (max-width: 720px) {
+  .unique-config-grid { grid-template-columns: 1fr; max-height: 380px; }
+  .inline-form { align-items: stretch; flex-direction: column; }
+  .inline-form label { min-width: 0; width: 100%; }
+  .help-dialog { max-height: 90vh; }
 }
