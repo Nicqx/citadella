@@ -1083,7 +1083,7 @@ api.post('/session/:code/turn/ability', async (req, res, next) => {
         if (action.destructionUsed) throw httpError(409, 'ability_already_used');
         const found = findBuiltDistrict(session, String(req.body.cardId || ''));
         if (!found) throw httpError(404, 'district_not_found');
-        if (found.owner.built.length >= 7) throw httpError(409, 'completed_city_protected');
+        if (cityCompletionCount(found.owner) >= 7) throw httpError(409, 'completed_city_protected');
         if (
           found.owner.characterId === 'bishop' &&
           effects.assassinatedCharacterId !== 'bishop'
@@ -1092,7 +1092,8 @@ api.post('/session/:code/turn/ability', async (req, res, next) => {
         }
         if (found.district.id === 'keep') throw httpError(409, 'keep_protected');
 
-        const destroyCost = Math.max(0, Number(found.district.cost || 0) - 1);
+        const greatWallExtra = hasDistrict(found.owner, 'great-wall') && found.district.id !== 'great-wall' ? 1 : 0;
+        const destroyCost = Math.max(0, Number(found.district.cost || 0) - 1 + greatWallExtra);
         if (actor.gold < destroyCost) throw httpError(409, 'not_enough_gold');
         actor.gold -= destroyCost;
         const [destroyed] = found.owner.built.splice(found.index, 1);
