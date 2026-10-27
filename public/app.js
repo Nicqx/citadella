@@ -236,7 +236,7 @@ function renderDraft() {
     ? state.draft.faceUp.map((role) => `<span class="badge">${role.rank}. ${escapeHtml(role.name)}</span>`).join('')
     : '<span class="muted">Nincs képpel felfelé félretett karakter.</span>';
 
-  app.innerHTML = `${renderTopbar()}${roleCard()}${handPanel()}<section class="panel stack"><div class="status-banner"><div><p class="eyebrow">Most választ</p><h2>${escapeHtml(current?.name || '—')}</h2></div><span class="badge">${state.draft.availableCount} lehetőség</span></div><div><p class="eyebrow">Nyíltan félretett karakterek</p><div class="face-up">${faceUp}</div></div>${myTurn ? `<div><p class="eyebrow">Válassz titokban egy karaktert</p><div class="draft-grid">${options}</div></div>` : `<p class="muted">Várj, amíg ${escapeHtml(current?.name || 'a következő játékos')} választ.</p>`}</section><div class="table-grid">${state.players.map(playerCard).join('')}</div>`;
+  app.innerHTML = `${renderTopbar()}${roleCard()}${botActionsPanel()}${handPanel()}<section class="panel stack"><div class="status-banner"><div><p class="eyebrow">Most választ</p><h2>${escapeHtml(current?.name || '—')}</h2></div><span class="badge">${state.draft.availableCount} lehetőség</span></div><div><p class="eyebrow">Nyíltan félretett karakterek</p><div class="face-up">${faceUp}</div></div>${myTurn ? `<div><p class="eyebrow">Válassz titokban egy karaktert</p><div class="draft-grid">${options}</div></div>` : `<p class="muted">Várj, amíg ${escapeHtml(current?.name || 'a következő játékos')} választ.</p>`}</section><div class="table-grid">${state.players.map(playerCard).join('')}</div>`;
 }
 
 function districtChip(district) {
@@ -249,7 +249,7 @@ function playerCard(player) {
   const active = state.turn?.activePlayerId === player.id;
   const role = player.character ? `<span class="badge">${player.character.rank}. ${escapeHtml(player.character.name)}</span>` : '';
   const controls = state.isHost
-    ? `<div class="gold-controls"><button class="ghost" data-action="gold" data-player="${player.id}" data-delta="-1">−1</button><button class="secondary" data-action="gold" data-player="${player.id}" data-delta="1">+1</button></div>`
+    ? `<div class="gold-admin"><span class="small-text muted">Admin aranykorrekció</span><div class="gold-controls"><button class="ghost" data-action="gold" data-player="${player.id}" data-delta="-1" title="Kézi admin javítás: −1 arany">−1 arany</button><button class="secondary" data-action="gold" data-player="${player.id}" data-delta="1" title="Kézi admin javítás: +1 arany">+1 arany</button></div></div>`
     : '';
   return `<section class="panel player-card ${active ? 'active' : ''} ${player.id === state.me.id ? 'me' : ''}"><div class="player-head"><div><div class="player-name">${escapeHtml(player.name)}</div><div class="meta">${player.isCrowned ? '<span class="badge crown">♛</span>' : ''}${player.isHost ? '<span class="badge">host</span>' : ''}${player.isBot ? '<span class="badge bot-badge">🤖</span>' : ''}${role}</div></div><div class="meta"><span class="badge">${player.handCount} kézlap</span><span class="badge">${player.built.length} kerület</span></div></div><div class="gold-line">🪙 ${player.gold} arany</div>${controls}<div class="districts">${player.built.map(districtChip).join('') || '<span class="muted">Még nincs megépített kerület.</span>'}</div></section>`;
 }
@@ -273,6 +273,16 @@ function faceUpCharactersPanel() {
   const cards = state.faceUpCharacters || [];
   if (!cards.length) return '';
   return `<section class="panel compact-panel face-up-panel"><span class="muted">Ebben a körben nyíltan félretéve:</span>${cards.map((role) => `<span class="badge">${role.rank}. ${escapeHtml(role.name)}</span>`).join('')}</section>`;
+}
+
+function botActionsPanel() {
+  const actions = state?.botActions || [];
+  if (!actions.length) return '';
+  const visible = actions.slice(-5).reverse();
+  return `<section class="bot-action-panel"><div class="bot-action-title"><span>🤖 Botok lépései</span><small>legfrissebb felül</small></div><div class="bot-action-list">${visible.map((entry, index) => {
+    const role = entry.characterName ? ` · ${escapeHtml(entry.characterName)}` : '';
+    return `<div class="bot-action-bubble ${index === 0 ? 'latest' : ''}"><div class="bot-action-head"><strong>${escapeHtml(entry.playerName)}${role}</strong><span>${entry.round}. kör</span></div><ul>${(entry.messages || []).map((message) => `<li>${escapeHtml(message)}</li>`).join('')}</ul></div>`;
+  }).join('')}</div></section>`;
 }
 
 function announcementsPanel() {
@@ -406,7 +416,7 @@ function renderTurns() {
   const selfActive = state.turn.activePlayerId === state.me.id;
   const canEnd = selfActive && state.turn.action.resourceGathered && !state.turn.action.pendingDraw?.length;
 
-  app.innerHTML = `${renderTopbar()}${roleCard()}${faceUpCharactersPanel()}${announcementsPanel()}<section class="panel status-banner"><div><p class="eyebrow">${state.finalRound ? 'Utolsó kör · ' : ''}${state.turn.index + 1}/${state.turn.total}</p><h2>${escapeHtml(active?.name || '—')} · ${state.turn.character.rank}. ${escapeHtml(state.turn.character.name)}</h2><p class="muted">${escapeHtml(state.turn.character.short)}</p></div>${selfActive ? `<button data-action="end-turn" ${canEnd ? '' : 'disabled'}>Kör vége</button>` : ''}</section>${resourcePanel()}${abilityPanel()}${districtAbilityPanel()}${handPanel({ build: true })}<div class="table-grid">${state.players.map(playerCard).join('')}</div>`;
+  app.innerHTML = `${renderTopbar()}${roleCard()}${botActionsPanel()}${faceUpCharactersPanel()}${announcementsPanel()}<section class="panel status-banner"><div><p class="eyebrow">${state.finalRound ? 'Utolsó kör · ' : ''}${state.turn.index + 1}/${state.turn.total}</p><h2>${escapeHtml(active?.name || '—')} · ${state.turn.character.rank}. ${escapeHtml(state.turn.character.name)}</h2><p class="muted">${escapeHtml(state.turn.character.short)}</p></div>${selfActive ? `<button data-action="end-turn" ${canEnd ? '' : 'disabled'}>Kör vége</button>` : ''}</section>${resourcePanel()}${abilityPanel()}${districtAbilityPanel()}${handPanel({ build: true })}<div class="table-grid">${state.players.map(playerCard).join('')}</div>`;
 }
 
 function renderFinished() {
@@ -417,10 +427,10 @@ function renderFinished() {
     .map((player) => {
       const score = byId.get(player.id);
       const winner = player.id === state.winnerPlayerId;
-      return `<div class="player-row score-line ${winner ? 'winner' : ''}"><strong>${winner ? '♛ ' : ''}${escapeHtml(player.name)}</strong><span class="score-number optional" title="Kerületek">${score.districtPoints}</span><span class="score-number optional" title="Típusbónusz">+${score.diversityBonus}</span><span class="score-number optional" title="Befejezés">+${score.completionBonus}</span><span class="score-number optional" title="Automatikus egyedi kerületbónusz">+${score.uniqueBonus || 0}</span><span class="score-number" title="Kézzel megadott bónusz">${score.manualBonus >= 0 ? '+' : ''}${score.manualBonus}</span><strong class="score-number">${score.total}</strong></div>`;
+      return `<div class="player-row score-line ${winner ? 'winner' : ''}"><strong>${winner ? '♛ ' : ''}${escapeHtml(player.name)}</strong><span class="score-number optional" title="Kerületek">${score.districtPoints}</span><span class="score-number optional" title="Típusbónusz">+${score.diversityBonus}</span><span class="score-number optional" title="Befejezés">+${score.completionBonus}</span><span class="score-number optional" title="Automatikus egyedi kerületbónusz">+${score.uniqueBonus || 0}</span><span class="score-number" title="Kézi pontkorrekció a még nem automatizált hatásokhoz">${score.manualBonus >= 0 ? '+' : ''}${score.manualBonus}</span><strong class="score-number">${score.total}</strong></div>`;
     }).join('');
   const myScore = byId.get(state.me.id);
-  app.innerHTML = `${renderTopbar()}${handPanel()}<section class="panel stack"><h2>Eredmény</h2><p class="muted">Az alap kerületpontok, az ötféle típus, a város befejezési bónusza és a legtöbb egyszerű egyedi kerületpont automatikus. Az összetettebb, választást igénylő hatások korrekcióját add meg kézzel.</p><div class="score-list">${rows}</div><form id="bonus-form" class="actions"><label>Egyedi kerületek bónuszpontja<input name="points" type="number" min="-999" max="999" value="${myScore?.manualBonus || 0}"></label><button type="submit">Saját bónusz mentése</button></form>${state.isHost ? '<div class="actions"><button data-action="start">Új játék ugyanebben a szobában</button><button class="secondary" data-action="leave-session">Új szoba létrehozása</button></div>' : '<div class="actions"><button class="secondary" data-action="leave-session">Kilépés / új szoba</button></div>'}</section>`;
+  app.innerHTML = `${renderTopbar()}${handPanel()}<section class="panel stack"><h2>Eredmény</h2><p class="muted">Az alap kerületpontok, az ötféle típus, a város befejezési bónusza és a legtöbb egyszerű egyedi kerületpont automatikus. Az összetettebb, választást igénylő hatások korrekcióját add meg kézzel.</p><div class="score-list">${rows}</div><form id="bonus-form" class="actions"><label>Kézi pontkorrekció <span class="small-text muted">Csak akkor használd, ha egy különleges kerülethatást az app még nem számolt automatikusan.</span><input name="points" type="number" min="-999" max="999" value="${myScore?.manualBonus || 0}"></label><button type="submit">Korrekció mentése</button></form>${state.isHost ? '<div class="actions"><button data-action="start">Új játék ugyanebben a szobában</button><button class="secondary" data-action="leave-session">Új szoba létrehozása</button></div>' : '<div class="actions"><button class="secondary" data-action="leave-session">Kilépés / új szoba</button></div>'}</section>`;
 }
 
 function render() {

@@ -244,3 +244,50 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   .inline-form label { min-width: 0; width: 100%; }
   .help-dialog { max-height: 90vh; }
 }
+
+
+/* Bot action feed and clearer admin controls */
+.gold-admin { display: grid; gap: 4px; margin-top: 4px; }
+.bot-action-panel {
+  margin: 12px 0;
+  display: grid;
+  gap: 8px;
+}
+.bot-action-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: .82rem;
+}
+.bot-action-title span { color: var(--text); font-weight: 900; }
+.bot-action-list { display: grid; gap: 7px; }
+.bot-action-bubble {
+  max-width: 760px;
+  border: 1px solid #405672;
+  border-radius: 16px 16px 16px 5px;
+  background: #152235;
+  padding: 10px 12px;
+  box-shadow: 0 8px 24px #0003;
+}
+.bot-action-bubble.latest {
+  border-color: #6385ad;
+  background: #192a40;
+}
+.bot-action-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: baseline;
+  margin-bottom: 5px;
+}
+.bot-action-head strong { color: var(--accent); }
+.bot-action-head span { color: var(--muted); font-size: .72rem; white-space: nowrap; }
+.bot-action-bubble ul { margin: 0; padding-left: 19px; color: #d5dfec; line-height: 1.45; }
+.bot-action-bubble li + li { margin-top: 2px; }
+
+@media (max-width: 720px) {
+  .bot-action-bubble { max-width: 100%; }
+  .gold-controls button { flex: 1 1 auto; }
+}
