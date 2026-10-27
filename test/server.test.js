@@ -161,3 +161,30 @@ test('Monument counts as two districts toward completed city size', () => {
   ];
   assert.equal(cityCompletionCount(player), 7);
 });
+
+
+test('stateView exposes the public bot action feed', () => {
+  const players = [
+    makePlayer('p0', 'A', 0),
+    { ...makePlayer('bot_1', 'Bot 1', 1), isBot: true }
+  ];
+  const session = makeSession(players);
+  session.botActionLog = [{
+    id: 1,
+    round: 2,
+    phase: 'turn',
+    playerId: 'bot_1',
+    playerName: 'Bot 1',
+    characterId: 'merchant',
+    characterName: 'Kereskedő',
+    messages: ['2 aranyat vett fel.', 'Megépítette: Piac (2 arany).']
+  }];
+
+  const view = stateView(session, players[0], 1234);
+  assert.equal(view.botActions.length, 1);
+  assert.equal(view.botActions[0].playerName, 'Bot 1');
+  assert.deepEqual(view.botActions[0].messages, [
+    '2 aranyat vett fel.',
+    'Megépítette: Piac (2 arany).'
+  ]);
+});
