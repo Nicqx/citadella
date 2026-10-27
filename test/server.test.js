@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { stateView } = require('../server');
+const { stateView, targetableCharacterIds } = require('../server');
 
 function makePlayer(id, name, seatIndex) {
   return {
@@ -36,6 +36,7 @@ function makeSession(players) {
       thiefTargetCharacterId: null,
       thiefPlayerId: null
     },
+    roundFaceUpCharacterIds: [],
     firstCompletedPlayerId: null,
     finalRound: false,
     winnerPlayerId: null
@@ -68,4 +69,45 @@ test('stateView exposes only the authenticated player district hand', () => {
   assert.equal(view.me.hand[0].name, 'Market');
   assert.equal(otherView.handCount, 1);
   assert.equal(Object.hasOwn(otherView, 'hand'), false);
+});
+
+
+test('public face-up character discards remain visible after drafting', () => {
+  const players = [
+    makePlayer('p0', 'A', 0),
+    makePlayer('p1', 'B', 1),
+    makePlayer('p2', 'C', 2),
+    makePlayer('p3', 'D', 3)
+  ];
+  const session = makeSession(players);
+  session.phase = 'turns';
+  session.roundFaceUpCharacterIds = ['bishop', 'merchant'];
+
+  const view = stateView(session, players[0], 1234);
+  assert.deepEqual(view.faceUpCharacters.map((character) => character.id), ['bishop', 'merchant']);
+});
+
+test('Assassin and Thief cannot target face-up discarded characters', () => {
+  const players = [
+    makePlayer('p0', 'A', 0),
+    makePlayer('p1', 'B', 1),
+    makePlayer('p2', 'C', 2),
+    makePlayer('p3', 'D', 3)
+  ];
+  const session = makeSession(players);
+  session.roundFaceUpCharacterIds = ['bishop', 'merchant'];
+  session.roundEffects.assassinatedCharacterId = 'king';
+
+  const assassinTargets = targetableCharacterIds(session, 'assassin');
+  assert.equal(assassinTargets.has('assassin'), false);
+  assert.equal(assassinTargets.has('bishop'), false);
+  assert.equal(assassinTargets.has('merchant'), false);
+  assert.equal(assassinTargets.has('thief'), true);
+
+  const thiefTargets = targetableCharacterIds(session, 'thief');
+  assert.equal(thiefTargets.has('assassin'), false);
+  assert.equal(thiefTargets.has('thief'), false);
+  assert.equal(thiefTargets.has('king'), false);
+  assert.equal(thiefTargets.has('bishop'), false);
+  assert.equal(thiefTargets.has('warlord'), true);
 });
