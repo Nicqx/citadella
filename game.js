@@ -152,43 +152,78 @@ function turnOrderFromChoices(choices) {
 }
 
 function scorePlayer(player, session) {
-  const districtPoints = player.built.reduce((sum, d) => sum + Number(d.cost || 0) + (d.beautified ? 1 : 0), 0);
-  const types = new Set(player.built.map((d) => d.type));
-  const diversityBonus = DISTRICT_TYPES.every((t) => types.has(t.id)) ? 3 : 0;
-  const has = (districtId) => player.built.some((district) => district.id === districtId);
-  const citySize = player.built.length + (has('monument') ? 1 : 0);
+  const built = Array.isArray(player.built) ? player.built : [];
+  const hand = Array.isArray(player.hand) ? player.hand : [];
+  const has = (districtId) => built.some((district) => district.id === districtId);
+  const districtPoints = built.reduce((sum, district) =>
+    sum + Number(district.cost || 0) + (district.beautified ? 1 : 0), 0);
+  const citySize = built.length + (has('monument') ? 1 : 0);
 
   let completionBonus = 0;
   if (citySize >= 7) {
     completionBonus = session.firstCompletedPlayerId === player.id ? 4 : 2;
   }
 
-  let uniqueBonus = 0;
-  if (has('dragon-gate')) uniqueBonus += 2;
-  if (has('imperial-treasury')) uniqueBonus += Number(player.gold || 0);
-  if (has('map-room')) uniqueBonus += Array.isArray(player.hand) ? player.hand.length : 0;
-  if (has('statue') && session.crownPlayerId === player.id) uniqueBonus += 5;
-  if (has('basilica')) {
-    uniqueBonus += player.built.filter((district) => Number(district.cost || 0) % 2 === 1).length;
-  }
-  if (has('capitol')) {
-    const counts = new Map();
-    for (const district of player.built) counts.set(district.type, (counts.get(district.type) || 0) + 1);
-    if ([...counts.values()].some((count) => count >= 3)) uniqueBonus += 3;
-  }
-  if (has('ivory-tower') && player.built.filter((district) => district.type === 'unique').length === 1) {
-    uniqueBonus += 5;
-  }
-  if (has('wishing-well')) {
-    uniqueBonus += player.built.filter((district) => district.type === 'unique').length;
-  }
-  if (Array.isArray(player.hand) && player.hand.some((district) => district.id === 'secret-vault')) {
-    uniqueBonus += 3;
-  }
+  const hauntedChoices = has('haunted-quarter')
+    ? ['unique', 'noble', 'religious', 'trade', 'military']
+    : ['unique'];
 
-  const manualBonus = Number(player.manualBonus || 0);
-  const total = districtPoints + diversityBonus + completionBonus + uniqueBonus + manualBonus;
-  return { districtPoints, diversityBonus, completionBonus, uniqueBonus, manualBonus, total };
+  const candidates = hauntedChoices.map((hauntedQuarterType) => {
+    const effectiveType = (district) =>
+      district.id === 'haunted-quarter' ? hauntedQuarterType : district.type;
+    const types = new Set(built.map(effectiveType));
+    const diversityBonus = DISTRICT_TYPES.every((type) => types.has(type.id)) ? 3 : 0;
+    const uniqueCount = built.filter((district) => effectiveType(district) === 'unique').length;
+
+    let uniqueBonus = 0;
+    if (has('dragon-gate')) uniqueBonus += 2;
+    if (has('imperial-treasury')) uniqueBonus += Number(player.gold || 0);
+    if (has('map-room')) uniqueBonus += hand.length;
+    if (has('statue') && session.crownPlayerId === player.id) uniqueBonus += 5;
+
+    if (has('basilica')) {
+      uniqueBonus += built.filter((district) => Number(district.cost || 0) % 2 === 1).length;
+    }
+
+    if (has('capitol')) {
+      const counts = new Map();
+      for (const district of built) {
+        const type = effectiveType(district);
+        counts.set(type, (counts.get(type) || 0) + 1);
+      }
+      if ([...counts.values()].some((count) => count >= 3)) uniqueBonus += 3;
+    }
+
+    if (has('ivory-tower') && uniqueCount === 1) uniqueBonus += 5;
+    if (has('wishing-well')) uniqueBonus += uniqueCount;
+    if (hand.some((district) => district.id === 'secret-vault')) uniqueBonus += 3;
+
+    const museum = built.find((district) => district.id === 'museum');
+    if (museum) {
+      uniqueBonus += Array.isArray(museum.storedCards)
+        ? museum.storedCards.length
+        : Number(museum.storedCardCount || 0);
+    }
+
+    return {
+      hauntedQuarterType,
+      diversityBonus,
+      uniqueBonus,
+      total: districtPoints + diversityBonus + completionBonus + uniqueBonus
+    };
+  });
+
+  const best = candidates.reduce((winner, candidate) =>
+    candidate.total > winner.total ? candidate : winner, candidates[0]);
+
+  return {
+    districtPoints,
+    diversityBonus: best.diversityBonus,
+    completionBonus,
+    uniqueBonus: best.uniqueBonus,
+    hauntedQuarterType: has('haunted-quarter') ? best.hauntedQuarterType : null,
+    total: best.total
+  };
 }
 
 module.exports = {

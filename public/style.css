@@ -87,7 +87,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .help-item p { color: #c6d1df; line-height: 1.5; margin: 8px 0 0; }
 .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(20px); opacity: 0; pointer-events: none; background: #0d141e; border: 1px solid #556b88; color: var(--text); border-radius: 10px; padding: 10px 14px; transition: .18s ease; z-index: 30; max-width: calc(100% - 32px); }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-.score-line { display: grid; grid-template-columns: minmax(120px, 1fr) repeat(6, auto); gap: 8px; align-items: center; }
+.score-line { display: grid; grid-template-columns: minmax(120px, 1fr) repeat(5, auto); gap: 8px; align-items: center; }
 .score-line strong { font-size: 1.08rem; }
 .score-number { min-width: 38px; text-align: right; font-variant-numeric: tabular-nums; }
 .winner { border-color: var(--gold); background: #2b2618; }
@@ -291,3 +291,5 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   .bot-action-bubble { max-width: 100%; }
   .gold-controls button { flex: 1 1 auto; }
 }
+
+.score-note { display: block; margin-top: 3px; color: var(--muted); font-size: .72rem; }

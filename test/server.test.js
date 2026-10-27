@@ -21,7 +21,6 @@ function makePlayer(id, name, seatIndex) {
     built: [],
     hand: [],
     characterId: null,
-    manualBonus: 0,
     isBot: false
   };
 }
@@ -187,4 +186,16 @@ test('stateView exposes the public bot action feed', () => {
     '2 aranyat vett fel.',
     'Megépítette: Piac (2 arany).'
   ]);
+});
+
+
+test('finished state no longer exposes a manual score correction', () => {
+  const actor = makePlayer('p_host', 'Nick', 0);
+  const session = makeSession([actor]);
+  session.phase = 'finished';
+  session.winnerPlayerId = actor.id;
+
+  const view = stateView(session, actor, 1234);
+  assert.equal(Object.hasOwn(view.me, 'manualBonus'), false);
+  assert.equal(Object.hasOwn(view.scores[0], 'manualBonus'), false);
 });

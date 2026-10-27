@@ -17,7 +17,7 @@ Mobilbarát, Redis-alapú Citadella játékszoba. Az alkalmazás kezeli a titkos
 - A karaktered és a képességed a saját telefonodon végig látszik.
 - A `?` gomb teljes játékmeneti segédletet mutat: cél, előkészítés, karakterválasztás, kör menete, pontozás, karakterek és az egyedi kerületek hatásai.
 - A közös asztal minden játékos aranyát, kézlapjainak számát és megépített kerületeit mutatja.
-- A pontozás automatikusan számolja a kerületek alapértékét, az öt típusért járó +3 pontot és a befejezési bónuszt. A még nem automatizált egyedi kerülethatások pontjai kézzel adhatók meg.
+- A pontozás teljesen automatikus: az app számolja a kerületek alapértékét, az öt típusért járó +3 pontot, a befejezési bónuszt és az egyedi kerületek játékvégi pontjait. A Kísértetvárosnál a legtöbb pontot adó szabályos típust választja.
 
 ## Interaktív karakterképességek
 
@@ -31,7 +31,7 @@ Mobilbarát, Redis-alapú Citadella játékszoba. Az alkalmazás kezeli a titkos
 - **Hadúr:** a nyílt asztalról kattintással választhat elpusztítandó kerületet; az app kezeli a költséget és az alapvető védelmeket.
 - **Királynő:** a Király melletti ülésért járó bónuszt az app automatikusan kezeli.
 
-Az egyedi kerületek egyre nagyobb része automatizált. Többek közt a Gyár, Könyvtár, Kőfejtő, Laboratórium, Kovácsműhely, Aranybánya, Csillagvizsgáló, Park, Szegényház, Istálló, Emlékmű, Nagy fal és több egyszerű játékvégi pontbónusz be van kötve. Az összetettebb, választást vagy külön lapkezelést igénylő hatásoknál a kártyaszöveg megjelenik, és a végeredménynél továbbra is használható kézi pontkorrekció.
+Az egyedi kerületek egyre nagyobb része automatizált. Többek közt a Gyár, Könyvtár, Kőfejtő, Laboratórium, Kovácsműhely, Aranybánya, Csillagvizsgáló, Park, Szegényház, Istálló, Emlékmű, Nagy fal és a játékvégi pontbónuszok be vannak kötve. A Múzeum alá körönként egy kézlap tehető, az app nyilvántartja ezeket és automatikusan pontozza őket.
 
 ## Szimulált játékosok
 

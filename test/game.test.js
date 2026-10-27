@@ -52,22 +52,27 @@ test('turn order is character rank order', () => {
   assert.deepEqual(order.map((x) => x.playerId), ['p2', 'p3', 'p1']);
 });
 
-test('score includes districts, diversity, completion and manual unique bonus', () => {
-  const player = { id: 'p1', manualBonus: 2, built: [
+test('score includes districts, diversity and completion without manual correction', () => {
+  const player = { id: 'p1', hand: [], built: [
     { cost: 1, type: 'noble' }, { cost: 2, type: 'religious' }, { cost: 3, type: 'trade' },
     { cost: 4, type: 'military' }, { cost: 5, type: 'unique' }, { cost: 1, type: 'noble' }, { cost: 1, type: 'trade' }
   ] };
   const score = scorePlayer(player, { firstCompletedPlayerId: 'p1' });
-  assert.deepEqual(score, { districtPoints: 17, diversityBonus: 3, completionBonus: 4, uniqueBonus: 0, manualBonus: 2, total: 26 });
+  assert.deepEqual(score, {
+    districtPoints: 17,
+    diversityBonus: 3,
+    completionBonus: 4,
+    uniqueBonus: 0,
+    hauntedQuarterType: null,
+    total: 24
+  });
 });
-
 
 test('Monument counts as two districts for city completion', () => {
   const player = {
     id: 'p1',
     gold: 0,
     hand: [],
-    manualBonus: 0,
     built: [
       { id: 'monument', cost: 4, type: 'unique' },
       { id: 'temple', cost: 1, type: 'religious' },
@@ -86,7 +91,6 @@ test('straightforward unique district end-game bonuses are automatic', () => {
     id: 'p1',
     gold: 3,
     hand: [{ id: 'secret-vault' }, { id: 'market' }],
-    manualBonus: 0,
     built: [
       { id: 'dragon-gate', cost: 6, type: 'unique' },
       { id: 'imperial-treasury', cost: 5, type: 'unique' },
@@ -97,4 +101,79 @@ test('straightforward unique district end-game bonuses are automatic', () => {
   };
   const score = scorePlayer(player, { firstCompletedPlayerId: null, crownPlayerId: 'p1' });
   assert.equal(score.uniqueBonus, 20);
+});
+
+test('Haunted Quarter automatically chooses the type that maximizes the final score', () => {
+  const player = {
+    id: 'p1',
+    gold: 0,
+    hand: [],
+    built: [
+      { id: 'haunted-quarter', cost: 2, type: 'unique' },
+      { id: 'wishing-well', cost: 5, type: 'unique' },
+      { id: 'temple', cost: 1, type: 'religious' },
+      { id: 'market', cost: 2, type: 'trade' },
+      { id: 'castle', cost: 4, type: 'noble' }
+    ]
+  };
+  const score = scorePlayer(player, { firstCompletedPlayerId: null, crownPlayerId: 'p2' });
+  assert.equal(score.hauntedQuarterType, 'military');
+  assert.equal(score.diversityBonus, 3);
+  assert.equal(score.uniqueBonus, 1);
+});
+
+test('Haunted Quarter interaction with Ivory Tower is scored automatically', () => {
+  const player = {
+    id: 'p1',
+    gold: 0,
+    hand: [],
+    built: [
+      { id: 'haunted-quarter', cost: 2, type: 'unique' },
+      { id: 'ivory-tower', cost: 5, type: 'unique' },
+      { id: 'temple', cost: 1, type: 'religious' },
+      { id: 'market', cost: 2, type: 'trade' },
+      { id: 'castle', cost: 4, type: 'noble' },
+      { id: 'prison', cost: 2, type: 'military' }
+    ]
+  };
+  const score = scorePlayer(player, { firstCompletedPlayerId: null, crownPlayerId: 'p2' });
+  assert.notEqual(score.hauntedQuarterType, 'unique');
+  assert.equal(score.diversityBonus, 3);
+  assert.equal(score.uniqueBonus, 5);
+});
+
+test('Haunted Quarter can create the third matching type for Capitol', () => {
+  const player = {
+    id: 'p1',
+    gold: 0,
+    hand: [],
+    built: [
+      { id: 'capitol', cost: 5, type: 'unique' },
+      { id: 'haunted-quarter', cost: 2, type: 'unique' },
+      { id: 'manor', cost: 3, type: 'noble' },
+      { id: 'castle', cost: 4, type: 'noble' }
+    ]
+  };
+  const score = scorePlayer(player, { firstCompletedPlayerId: null, crownPlayerId: 'p2' });
+  assert.equal(score.hauntedQuarterType, 'noble');
+  assert.equal(score.uniqueBonus, 3);
+});
+
+test('Museum stored cards are included in automatic unique scoring', () => {
+  const player = {
+    id: 'p1',
+    gold: 0,
+    hand: [],
+    built: [
+      {
+        id: 'museum',
+        cost: 4,
+        type: 'unique',
+        storedCards: [{ id: 'a' }, { id: 'b' }, { id: 'c' }]
+      }
+    ]
+  };
+  const score = scorePlayer(player, { firstCompletedPlayerId: null, crownPlayerId: 'p2' });
+  assert.equal(score.uniqueBonus, 3);
+  assert.equal(score.total, 7);
 });
