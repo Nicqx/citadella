@@ -1462,6 +1462,7 @@ api.post('/session/:code/turn/resource', async (req, res, next) => {
         throw httpError(400, 'invalid_resource_mode');
       }
       afterResourceChoice(session);
+      runBots(session);
       await saveSession(session);
     });
     res.json({ ok: true });
@@ -1484,6 +1485,7 @@ api.post('/session/:code/turn/resource/keep', async (req, res, next) => {
       putOnDeckBottom(session, pending.filter((card) => card.cardId !== cardId));
       action.pendingDraw = [];
       afterResourceChoice(session);
+      runBots(session);
       await saveSession(session);
     });
     res.json({ ok: true });
@@ -2006,6 +2008,7 @@ api.post('/session/:code/turn/ability', async (req, res, next) => {
         throw httpError(400, 'invalid_ability_action');
       }
 
+      runBots(session);
       await saveSession(session);
     });
     res.json({ ok: true });
