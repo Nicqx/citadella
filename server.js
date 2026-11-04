@@ -472,30 +472,64 @@ function areAdjacent(session, playerAId, playerBId) {
   return ((a + 1) % players.length === b) || ((b + 1) % players.length === a);
 }
 
-function applyTurnStartEffects(session, current) {
+function applyTurnStartEffects(session, current, options = {}) {
   const actor = getPlayer(session, current.playerId);
   const effects = ensureRoundEffects(session);
+  const witchContinuation = Boolean(options.witchContinuation);
+  const bewitchedVictim = Boolean(options.bewitchedVictim);
 
-  if (effects.thiefTargetCharacterId === current.characterId && effects.thiefPlayerId) {
+  if (!witchContinuation && effects.thiefTargetCharacterId === current.characterId && effects.thiefPlayerId) {
     const thief = getPlayer(session, effects.thiefPlayerId);
     if (thief && thief.id !== actor.id) {
-      thief.gold += actor.gold;
+      thief.gold = Math.min(MAX_GOLD, thief.gold + actor.gold);
       actor.gold = 0;
     }
   }
 
-  if (current.characterId === 'king') {
+  // A megbabonázott Király/Patrícius a szabály szerint a koronát akkor is megkapja.
+  if (!witchContinuation && ['king', 'patrician'].includes(current.characterId)) {
     session.crownPlayerId = current.playerId;
-  } else if (current.characterId === 'merchant') {
+  }
+
+  if (bewitchedVictim) return;
+
+  if (current.characterId === 'merchant') {
     actor.gold = Math.min(MAX_GOLD, actor.gold + 1);
   } else if (current.characterId === 'architect') {
-    actor.hand.push(...drawCards(session, 2));
+    actor.hand.push(...drawCards(session, Math.min(2, session.districtDeck.length)));
   } else if (current.characterId === 'queen') {
-    const kingEntry = session.turn.order.find((entry) => entry.characterId === 'king');
-    if (kingEntry && effects.assassinatedCharacterId !== 'king' && areAdjacent(session, current.playerId, kingEntry.playerId)) {
+    const rankFourEntry = session.turn.order.find((entry) => CHARACTER_MAP.get(entry.characterId)?.rank === 4 && !entry.witchContinuation);
+    if (
+      rankFourEntry &&
+      effects.assassinatedCharacterId !== rankFourEntry.characterId &&
+      areAdjacent(session, current.playerId, rankFourEntry.playerId)
+    ) {
       actor.gold = Math.min(MAX_GOLD, actor.gold + 3);
     }
   }
+}
+
+function finishBewitchedVictim(session) {
+  const action = activeAction(session);
+  const current = activeTurn(session);
+  if (!action?.bewitchedVictim || !current || !action.resourceGathered || action.pendingDraw?.length) return false;
+
+  const effects = ensureRoundEffects(session);
+  const witch = getPlayer(session, effects.witchPlayerId);
+  const borrowedCharacterId = current.characterId;
+
+  session.turn.index += 1;
+  if (witch && effects.assassinatedCharacterId !== borrowedCharacterId) {
+    session.turn.order.splice(session.turn.index, 0, {
+      playerId: witch.id,
+      characterId: borrowedCharacterId,
+      rank: CHARACTER_MAP.get(borrowedCharacterId)?.rank || 99,
+      witchContinuation: true,
+      originalTargetPlayerId: current.playerId
+    });
+  }
+  activateCurrentTurn(session);
+  return true;
 }
 
 function activateCurrentTurn(session) {
@@ -504,7 +538,7 @@ function activateCurrentTurn(session) {
     if (!current) break;
     const effects = ensureRoundEffects(session);
 
-    if (effects.assassinatedCharacterId === current.characterId) {
+    if (!current.witchContinuation && effects.assassinatedCharacterId === current.characterId) {
       if (!session.turn.skippedPlayerIds.includes(current.playerId)) {
         session.turn.skippedPlayerIds.push(current.playerId);
       }
@@ -515,17 +549,40 @@ function activateCurrentTurn(session) {
     if (!session.turn.revealedPlayerIds.includes(current.playerId)) {
       session.turn.revealedPlayerIds.push(current.playerId);
     }
+
+    const isBewitchedVictim = !current.witchContinuation &&
+      effects.witchTargetCharacterId === current.characterId &&
+      effects.witchPlayerId &&
+      effects.witchPlayerId !== current.playerId;
+
     session.turn.action = {
       playerId: current.playerId,
-      resourceGathered: false,
+      resourceGathered: Boolean(current.witchContinuation),
       builds: 0,
       incomeUsed: false,
       specialUsed: false,
       destructionUsed: false,
       districtUses: {},
-      pendingDraw: []
+      pendingDraw: [],
+      specialDraw: [],
+      inspectedHand: [],
+      inspectedPlayerId: null,
+      seerPendingPlayerIds: [],
+      buildGoldSpent: 0,
+      artistUses: 0,
+      blackmailPending: false,
+      witchContinuation: Boolean(current.witchContinuation),
+      bewitchedVictim: Boolean(isBewitchedVictim)
     };
-    applyTurnStartEffects(session, current);
+
+    if (current.witchContinuation) {
+      effects.witchBorrowedCharacterId = current.characterId;
+      applyTurnStartEffects(session, current, { witchContinuation: true });
+    } else if (isBewitchedVictim) {
+      applyTurnStartEffects(session, current, { bewitchedVictim: true });
+    } else {
+      applyTurnStartEffects(session, current);
+    }
     return;
   }
 
@@ -553,9 +610,30 @@ function finishGame(session) {
 
 function completeRound(session) {
   const effects = ensureRoundEffects(session);
-  if (effects.assassinatedCharacterId === 'king') {
-    const killedKing = session.players.find((p) => p.characterId === 'king');
-    if (killedKing) session.crownPlayerId = killedKing.id;
+  const killedCharacterId = effects.assassinatedCharacterId;
+
+  if (isRankFourCharacter(killedCharacterId)) {
+    const killedRankFour = session.players.find((player) => player.characterId === killedCharacterId);
+    if (killedRankFour) {
+      if (killedCharacterId === 'emperor') {
+        const players = sortedPlayers(session);
+        const index = players.findIndex((player) => player.id === killedRankFour.id);
+        const recipient = players[(index + 1) % players.length];
+        if (recipient && recipient.id !== killedRankFour.id) session.crownPlayerId = recipient.id;
+      } else {
+        session.crownPlayerId = killedRankFour.id;
+      }
+
+      const queen = session.players.find((player) => player.characterId === 'queen');
+      if (
+        queen &&
+        killedCharacterId !== 'queen' &&
+        effects.assassinatedCharacterId !== 'queen' &&
+        areAdjacent(session, queen.id, killedRankFour.id)
+      ) {
+        queen.gold = Math.min(MAX_GOLD, queen.gold + 3);
+      }
+    }
   }
 
   if (session.finalRound) {
@@ -570,11 +648,21 @@ function endCurrentTurn(session) {
   if (!session.turn) throw httpError(409, 'turn_not_active');
   const action = activeAction(session);
   if (!action?.resourceGathered) throw httpError(409, 'resource_required');
-  if (action.pendingDraw?.length) throw httpError(409, 'draw_choice_required');
+  if (action.pendingDraw?.length || action.specialDraw?.length) throw httpError(409, 'draw_choice_required');
+  if (action.seerPendingPlayerIds?.length) throw httpError(409, 'seer_return_required');
+  if (action.blackmailPending) throw httpError(409, 'blackmail_response_required');
 
   const current = activeTurn(session);
   const actor = current ? getPlayer(session, current.playerId) : null;
+  if (current?.characterId === 'emperor' && !action.specialUsed) {
+    throw httpError(409, 'emperor_crown_required');
+  }
+
   if (actor) {
+    if (current.characterId === 'alchemist' && action.buildGoldSpent > 0) {
+      actor.gold = Math.min(MAX_GOLD, actor.gold + action.buildGoldSpent);
+      action.buildGoldSpent = 0;
+    }
     if (hasDistrict(actor, 'park') && actor.hand.length === 0 && session.districtDeck.length >= 2) {
       actor.hand.push(...drawCards(session, 2));
     }
