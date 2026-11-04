@@ -1596,6 +1596,36 @@ api.post('/session/:code/turn/build', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+function drawUpTo(session, count) {
+  const safeCount = Math.min(Math.max(0, Number(count || 0)), session.districtDeck.length);
+  return safeCount ? drawCards(session, safeCount) : [];
+}
+
+function takeRandomHandCard(player) {
+  if (!player?.hand?.length) return null;
+  const index = crypto.randomInt(0, player.hand.length);
+  const [card] = player.hand.splice(index, 1);
+  return card || null;
+}
+
+function returnCardsAndShuffle(session, cards) {
+  session.districtDeck.push(...cards);
+  for (let i = session.districtDeck.length - 1; i > 0; i -= 1) {
+    const j = crypto.randomInt(0, i + 1);
+    [session.districtDeck[i], session.districtDeck[j]] = [session.districtDeck[j], session.districtDeck[i]];
+  }
+}
+
+function districtValue(district) {
+  return Number(district.cost || 0) + (district.beautified ? 1 : 0);
+}
+
+function requireNoPendingTurnChoice(action) {
+  if (action.blackmailPending) throw httpError(409, 'blackmail_response_required');
+  if (action.pendingDraw?.length || action.specialDraw?.length) throw httpError(409, 'draw_choice_required');
+  if (action.seerPendingPlayerIds?.length) throw httpError(409, 'seer_return_required');
+}
+
 api.post('/session/:code/turn/ability', async (req, res, next) => {
   try {
     await withLock(req.params.code, async () => {
@@ -1605,34 +1635,102 @@ api.post('/session/:code/turn/ability', async (req, res, next) => {
       const action = activeAction(session);
       const effects = ensureRoundEffects(session);
       const abilityAction = String(req.body.action || '');
+      const roleId = current.characterId;
 
-      if (current.characterId === 'assassin') {
+      if (action.bewitchedVictim) throw httpError(409, 'bewitched_action_forbidden');
+      if (abilityAction !== 'seer-return') requireNoPendingTurnChoice(action);
+
+      if (roleId === 'assassin') {
         if (action.specialUsed) throw httpError(409, 'ability_already_used');
         if (abilityAction !== 'target-character') throw httpError(400, 'invalid_ability_action');
         const target = String(req.body.targetCharacterId || '');
-        if (!targetableCharacterIds(session, 'assassin').has(target)) {
-          throw httpError(400, 'invalid_character_target');
-        }
+        if (!targetableCharacterIds(session, roleId).has(target)) throw httpError(400, 'invalid_character_target');
         effects.assassinatedCharacterId = target;
         action.specialUsed = true;
-      } else if (current.characterId === 'thief') {
+
+      } else if (roleId === 'witch') {
+        if (action.specialUsed) throw httpError(409, 'ability_already_used');
+        if (!action.resourceGathered) throw httpError(409, 'resource_required');
+        if (abilityAction !== 'target-character') throw httpError(400, 'invalid_ability_action');
+        const target = String(req.body.targetCharacterId || '');
+        if (!targetableCharacterIds(session, roleId).has(target)) throw httpError(400, 'invalid_character_target');
+        effects.witchTargetCharacterId = target;
+        effects.witchPlayerId = actor.id;
+        action.specialUsed = true;
+
+        const futureTarget = session.turn.order
+          .slice(session.turn.index + 1)
+          .some((entry) => !entry.witchContinuation && entry.characterId === target);
+        if (futureTarget && effects.assassinatedCharacterId !== target) {
+          session.turn.index += 1;
+          activateCurrentTurn(session);
+        } else {
+          endCurrentTurn(session);
+        }
+
+      } else if (roleId === 'magistrate') {
+        if (action.specialUsed) throw httpError(409, 'ability_already_used');
+        if (abilityAction !== 'set-orders') throw httpError(400, 'invalid_ability_action');
+        const targets = Array.isArray(req.body.targetCharacterIds)
+          ? [...new Set(req.body.targetCharacterIds.map(String))]
+          : [];
+        const signed = String(req.body.signedCharacterId || '');
+        const allowed = targetableCharacterIds(session, roleId);
+        if (targets.length !== 3 || targets.some((idValue) => !allowed.has(idValue)) || !targets.includes(signed)) {
+          throw httpError(400, 'invalid_character_target');
+        }
+        effects.magistrateTargetCharacterIds = targets;
+        effects.magistrateSignedCharacterId = signed;
+        effects.magistratePlayerId = actor.id;
+        effects.magistrateUsed = false;
+        action.specialUsed = true;
+
+      } else if (roleId === 'thief') {
         if (action.specialUsed) throw httpError(409, 'ability_already_used');
         if (abilityAction !== 'target-character') throw httpError(400, 'invalid_ability_action');
         const target = String(req.body.targetCharacterId || '');
-        if (!targetableCharacterIds(session, 'thief').has(target)) {
-          throw httpError(400, 'invalid_character_target');
-        }
+        if (!targetableCharacterIds(session, roleId).has(target)) throw httpError(400, 'invalid_character_target');
         effects.thiefTargetCharacterId = target;
         effects.thiefPlayerId = actor.id;
         action.specialUsed = true;
-      } else if (current.characterId === 'magician') {
+
+      } else if (roleId === 'spy') {
+        if (action.specialUsed) throw httpError(409, 'ability_already_used');
+        if (abilityAction !== 'spy') throw httpError(400, 'invalid_ability_action');
+        const target = getPlayer(session, String(req.body.targetPlayerId || ''));
+        const type = String(req.body.districtType || '');
+        if (!target || target.id === actor.id) throw httpError(400, 'invalid_player_target');
+        if (!DISTRICT_TYPES.some((item) => item.id === type)) throw httpError(400, 'invalid_district_type');
+        const matches = target.hand.filter((card) => card.type === type).length;
+        const stolenGold = Math.min(matches, target.gold);
+        target.gold -= stolenGold;
+        actor.gold = Math.min(MAX_GOLD, actor.gold + stolenGold);
+        actor.hand.push(...drawUpTo(session, matches));
+        action.specialUsed = true;
+
+      } else if (roleId === 'blackmailer') {
+        if (action.specialUsed) throw httpError(409, 'ability_already_used');
+        if (abilityAction !== 'set-threats') throw httpError(400, 'invalid_ability_action');
+        const targets = Array.isArray(req.body.targetCharacterIds)
+          ? [...new Set(req.body.targetCharacterIds.map(String))]
+          : [];
+        const real = String(req.body.realCharacterId || '');
+        const allowed = targetableCharacterIds(session, roleId);
+        if (targets.length !== 2 || targets.some((idValue) => !allowed.has(idValue)) || !targets.includes(real)) {
+          throw httpError(400, 'invalid_character_target');
+        }
+        effects.blackmailTargetCharacterIds = targets;
+        effects.blackmailRealCharacterId = real;
+        effects.blackmailerPlayerId = actor.id;
+        effects.blackmailResolved = {};
+        action.specialUsed = true;
+
+      } else if (roleId === 'magician') {
         if (action.specialUsed) throw httpError(409, 'ability_already_used');
         if (abilityAction === 'swap-hands') {
           const target = getPlayer(session, String(req.body.targetPlayerId || ''));
           if (!target || target.id === actor.id) throw httpError(400, 'invalid_player_target');
-          const hand = actor.hand;
-          actor.hand = target.hand;
-          target.hand = hand;
+          [actor.hand, target.hand] = [target.hand, actor.hand];
           action.specialUsed = true;
         } else if (abilityAction === 'redraw') {
           const cardIds = Array.isArray(req.body.cardIds) ? [...new Set(req.body.cardIds.map(String))] : [];
@@ -1641,38 +1739,265 @@ api.post('/session/:code/turn/ability', async (req, res, next) => {
           if (selected.some((card) => !card)) throw httpError(400, 'district_not_in_hand');
           actor.hand = actor.hand.filter((card) => !cardIds.includes(card.cardId));
           putOnDeckBottom(session, selected);
-          actor.hand.push(...drawCards(session, selected.length));
+          actor.hand.push(...drawUpTo(session, selected.length));
           action.specialUsed = true;
         } else {
           throw httpError(400, 'invalid_ability_action');
         }
-      } else if (['king', 'bishop', 'merchant', 'warlord'].includes(current.characterId) && abilityAction === 'income') {
+
+      } else if (roleId === 'wizard') {
+        if (action.specialUsed) throw httpError(409, 'ability_already_used');
+        if (abilityAction === 'inspect') {
+          const target = getPlayer(session, String(req.body.targetPlayerId || ''));
+          if (!target || target.id === actor.id) throw httpError(400, 'invalid_player_target');
+          action.inspectedPlayerId = target.id;
+          action.inspectedHand = target.hand.map((card) => ({ ...card }));
+        } else if (abilityAction === 'take-card') {
+          const target = getPlayer(session, action.inspectedPlayerId);
+          if (!target || target.id === actor.id) throw httpError(400, 'invalid_player_target');
+          const cardId = String(req.body.cardId || '');
+          const index = target.hand.findIndex((card) => card.cardId === cardId);
+          if (index < 0) throw httpError(404, 'district_not_in_hand');
+          const [card] = target.hand.splice(index, 1);
+          const mode = String(req.body.mode || 'keep');
+          if (mode === 'build') {
+            if (card.id === 'secret-vault') throw httpError(409, 'district_cannot_be_built');
+            if (card.id === 'monument' && actor.built.length >= 5) throw httpError(409, 'monument_too_late');
+            const cost = effectiveBuildCost(actor, card);
+            if (actor.gold < cost) {
+              target.hand.splice(index, 0, card);
+              throw httpError(409, 'not_enough_gold');
+            }
+            actor.gold -= cost;
+            actor.built.push({ ...card, beautified: false, builtAtRound: session.round });
+            finalizeDistrictBuild(session, actor, roleId, actor.built[actor.built.length - 1], cost, action);
+          } else if (mode === 'keep') {
+            actor.hand.push(card);
+          } else {
+            target.hand.splice(index, 0, card);
+            throw httpError(400, 'invalid_ability_action');
+          }
+          action.inspectedHand = [];
+          action.inspectedPlayerId = null;
+          action.specialUsed = true;
+        } else {
+          throw httpError(400, 'invalid_ability_action');
+        }
+
+      } else if (roleId === 'seer') {
+        if (abilityAction === 'seer-draw') {
+          if (action.specialUsed) throw httpError(409, 'ability_already_used');
+          const pending = [];
+          for (const player of session.players) {
+            if (player.id === actor.id || !player.hand.length) continue;
+            const card = takeRandomHandCard(player);
+            if (card) {
+              actor.hand.push(card);
+              pending.push(player.id);
+            }
+          }
+          action.seerPendingPlayerIds = pending;
+          action.specialUsed = true;
+        } else if (abilityAction === 'seer-return') {
+          const targetId = String(req.body.targetPlayerId || '');
+          if (!action.seerPendingPlayerIds?.includes(targetId)) throw httpError(400, 'invalid_player_target');
+          const target = getPlayer(session, targetId);
+          const cardId = String(req.body.cardId || '');
+          const index = actor.hand.findIndex((card) => card.cardId === cardId);
+          if (!target || index < 0) throw httpError(404, 'district_not_in_hand');
+          const [card] = actor.hand.splice(index, 1);
+          target.hand.push(card);
+          action.seerPendingPlayerIds = action.seerPendingPlayerIds.filter((idValue) => idValue !== targetId);
+        } else {
+          throw httpError(400, 'invalid_ability_action');
+        }
+
+      } else if (['king', 'emperor', 'bishop', 'merchant', 'trader', 'warlord', 'diplomat', 'marshal'].includes(roleId) && abilityAction === 'income') {
         if (action.incomeUsed) throw httpError(409, 'ability_already_used');
-        const amount = characterIncome(actor, current.characterId);
+        const amount = characterIncome(actor, roleId);
         actor.gold = Math.min(MAX_GOLD, actor.gold + amount);
         action.incomeUsed = true;
-      } else if (current.characterId === 'warlord' && abilityAction === 'destroy-district') {
+
+      } else if (['patrician', 'cardinal'].includes(roleId) && abilityAction === 'income') {
+        if (action.incomeUsed) throw httpError(409, 'ability_already_used');
+        const amount = characterIncome(actor, roleId);
+        actor.hand.push(...drawUpTo(session, amount));
+        action.incomeUsed = true;
+
+      } else if (roleId === 'abbot' && abilityAction === 'abbot-income') {
+        if (action.incomeUsed) throw httpError(409, 'ability_already_used');
+        const amount = characterIncome(actor, roleId);
+        const goldCount = clampInt(req.body.goldCount, 0, amount, 'invalid_resource_count');
+        const cardCount = amount - goldCount;
+        actor.gold = Math.min(MAX_GOLD, actor.gold + goldCount);
+        actor.hand.push(...drawUpTo(session, cardCount));
+        action.incomeUsed = true;
+
+        const richestGold = Math.max(0, ...session.players.filter((player) => player.id !== actor.id).map((player) => player.gold));
+        if (richestGold > actor.gold) {
+          const richest = session.players.filter((player) => player.id !== actor.id && player.gold === richestGold);
+          const requested = getPlayer(session, String(req.body.richestPlayerId || ''));
+          const payer = requested && richest.some((player) => player.id === requested.id) ? requested : richest[0];
+          if (payer?.gold > 0) {
+            payer.gold -= 1;
+            actor.gold = Math.min(MAX_GOLD, actor.gold + 1);
+          }
+        }
+
+      } else if (roleId === 'cardinal' && abilityAction === 'cardinal-build') {
+        if (action.specialUsed) throw httpError(409, 'ability_already_used');
+        if (!action.resourceGathered) throw httpError(409, 'resource_required');
+        const buildLimit = characterBuildLimit(roleId);
+        const cardId = String(req.body.cardId || '');
+        const cardIndex = actor.hand.findIndex((card) => card.cardId === cardId);
+        if (cardIndex < 0) throw httpError(404, 'district_not_in_hand');
+        const card = actor.hand[cardIndex];
+        if (buildConsumesLimit(roleId, card) && action.builds >= buildLimit) throw httpError(409, 'build_limit_reached');
+        if (card.id === 'secret-vault') throw httpError(409, 'district_cannot_be_built');
+        if (!canBuildDuplicate(actor, card)) throw httpError(409, 'duplicate_district');
+        const cost = effectiveBuildCost(actor, card);
+        const shortage = Math.max(0, cost - actor.gold);
+        if (shortage <= 0) throw httpError(409, 'cardinal_funding_not_needed');
+
+        const target = getPlayer(session, String(req.body.targetPlayerId || ''));
+        if (!target || target.id === actor.id || target.gold < shortage) throw httpError(400, 'invalid_player_target');
+        const paymentIds = Array.isArray(req.body.paymentCardIds)
+          ? [...new Set(req.body.paymentCardIds.map(String))]
+          : [];
+        if (paymentIds.length !== shortage || paymentIds.includes(cardId)) throw httpError(400, 'cards_required');
+        const paymentCards = paymentIds.map((idValue) => actor.hand.find((item) => item.cardId === idValue));
+        if (paymentCards.some((item) => !item)) throw httpError(404, 'district_not_in_hand');
+
+        actor.hand = actor.hand.filter((item) => !paymentIds.includes(item.cardId));
+        target.hand.push(...paymentCards);
+        target.gold -= shortage;
+        actor.gold += shortage;
+
+        const newIndex = actor.hand.findIndex((item) => item.cardId === cardId);
+        const [builtCard] = actor.hand.splice(newIndex, 1);
+        actor.gold -= cost;
+        actor.built.push({ ...builtCard, beautified: false, builtAtRound: session.round });
+        if (buildConsumesLimit(roleId, builtCard)) action.builds += 1;
+        finalizeDistrictBuild(session, actor, roleId, actor.built[actor.built.length - 1], cost, action);
+        action.specialUsed = true;
+
+      } else if (roleId === 'emperor' && abilityAction === 'crown') {
+        if (action.specialUsed) throw httpError(409, 'ability_already_used');
+        const target = getPlayer(session, String(req.body.targetPlayerId || ''));
+        if (!target || target.id === actor.id || target.id === session.crownPlayerId) throw httpError(400, 'invalid_player_target');
+        const payment = String(req.body.payment || 'gold');
+        session.crownPlayerId = target.id;
+        if (payment === 'gold' && target.gold > 0) {
+          target.gold -= 1;
+          actor.gold = Math.min(MAX_GOLD, actor.gold + 1);
+        } else if (payment === 'card' && target.hand.length > 0) {
+          const card = takeRandomHandCard(target);
+          if (card) actor.hand.push(card);
+        } else if (!(target.gold === 0 && target.hand.length === 0)) {
+          throw httpError(409, 'emperor_payment_unavailable');
+        }
+        action.specialUsed = true;
+
+      } else if (roleId === 'navigator' && abilityAction === 'navigator-resource') {
+        if (action.specialUsed) throw httpError(409, 'ability_already_used');
+        const mode = String(req.body.mode || '');
+        if (mode === 'gold') actor.gold = Math.min(MAX_GOLD, actor.gold + 4);
+        else if (mode === 'cards') actor.hand.push(...drawUpTo(session, 4));
+        else throw httpError(400, 'invalid_resource_mode');
+        action.specialUsed = true;
+
+      } else if (roleId === 'scholar') {
+        if (abilityAction === 'scholar-draw') {
+          if (action.specialUsed) throw httpError(409, 'ability_already_used');
+          action.specialDraw = drawUpTo(session, 7);
+          action.specialUsed = true;
+        } else if (abilityAction === 'scholar-keep') {
+          const cardId = String(req.body.cardId || '');
+          const chosen = action.specialDraw?.find((card) => card.cardId === cardId);
+          if (!chosen) throw httpError(400, 'invalid_draw_choice');
+          actor.hand.push(chosen);
+          returnCardsAndShuffle(session, action.specialDraw.filter((card) => card.cardId !== cardId));
+          action.specialDraw = [];
+        } else {
+          throw httpError(400, 'invalid_ability_action');
+        }
+
+      } else if (roleId === 'warlord' && abilityAction === 'destroy-district') {
         if (action.destructionUsed) throw httpError(409, 'ability_already_used');
         const found = findBuiltDistrict(session, String(req.body.cardId || ''));
         if (!found) throw httpError(404, 'district_not_found');
         if (cityCompletionCount(found.owner) >= 7) throw httpError(409, 'completed_city_protected');
-        if (
-          found.owner.characterId === 'bishop' &&
-          effects.assassinatedCharacterId !== 'bishop'
-        ) {
-          throw httpError(409, 'bishop_protected');
-        }
+        if (isRankEightProtected(session, found.owner)) throw httpError(409, 'bishop_protected');
         if (found.district.id === 'keep') throw httpError(409, 'keep_protected');
-
         const destroyCost = districtDestructionCost(found.owner, found.district);
         if (actor.gold < destroyCost) throw httpError(409, 'not_enough_gold');
         actor.gold -= destroyCost;
         const [destroyed] = found.owner.built.splice(found.index, 1);
-        if (destroyed.id === 'museum' && Array.isArray(destroyed.storedCards)) {
-          putOnDeckBottom(session, destroyed.storedCards);
-        }
+        if (destroyed.id === 'museum' && Array.isArray(destroyed.storedCards)) putOnDeckBottom(session, destroyed.storedCards);
         putOnDeckBottom(session, [destroyed]);
         action.destructionUsed = true;
+
+      } else if (roleId === 'diplomat' && abilityAction === 'swap-districts') {
+        if (action.specialUsed) throw httpError(409, 'ability_already_used');
+        const ownFound = findBuiltDistrict(session, String(req.body.ownCardId || ''));
+        const targetFound = findBuiltDistrict(session, String(req.body.targetCardId || ''));
+        if (!ownFound || ownFound.owner.id !== actor.id || !targetFound || targetFound.owner.id === actor.id) {
+          throw httpError(400, 'invalid_district_target');
+        }
+        if (cityCompletionCount(targetFound.owner) >= 7) throw httpError(409, 'completed_city_protected');
+        if (isRankEightProtected(session, targetFound.owner)) throw httpError(409, 'bishop_protected');
+
+        const actorOther = actor.built.filter((district) => district.cardId !== ownFound.district.cardId);
+        const targetOther = targetFound.owner.built.filter((district) => district.cardId !== targetFound.district.cardId);
+        const actorProbe = { ...actor, built: actorOther };
+        const targetProbe = { ...targetFound.owner, built: targetOther };
+        if (!canBuildDuplicate(actorProbe, targetFound.district) || !canBuildDuplicate(targetProbe, ownFound.district)) {
+          throw httpError(409, 'duplicate_district');
+        }
+
+        const difference = Math.max(0, districtValue(targetFound.district) - districtValue(ownFound.district));
+        if (actor.gold < difference) throw httpError(409, 'not_enough_gold');
+        actor.gold -= difference;
+
+        actor.built[ownFound.index] = targetFound.district;
+        targetFound.owner.built[targetFound.index] = ownFound.district;
+        action.specialUsed = true;
+
+      } else if (roleId === 'marshal' && abilityAction === 'seize-district') {
+        if (action.specialUsed) throw httpError(409, 'ability_already_used');
+        const found = findBuiltDistrict(session, String(req.body.cardId || ''));
+        if (!found || found.owner.id === actor.id) throw httpError(400, 'invalid_district_target');
+        if (cityCompletionCount(found.owner) >= 7) throw httpError(409, 'completed_city_protected');
+        if (isRankEightProtected(session, found.owner)) throw httpError(409, 'bishop_protected');
+        const cost = districtValue(found.district);
+        if (cost > 3) throw httpError(409, 'marshal_cost_limit');
+        if (!canBuildDuplicate(actor, found.district)) throw httpError(409, 'duplicate_district');
+        if (actor.gold < cost) throw httpError(409, 'not_enough_gold');
+
+        actor.gold -= cost;
+        found.owner.gold = Math.min(MAX_GOLD, found.owner.gold + cost);
+        const [taken] = found.owner.built.splice(found.index, 1);
+        actor.built.push(taken);
+        updateCityCompletion(session, actor);
+        action.specialUsed = true;
+
+      } else if (roleId === 'artist' && abilityAction === 'beautify') {
+        if (action.artistUses >= 2) throw httpError(409, 'ability_already_used');
+        const found = findBuiltDistrict(session, String(req.body.cardId || ''));
+        if (!found || found.owner.id !== actor.id) throw httpError(400, 'invalid_district_target');
+        if (found.district.beautified) throw httpError(409, 'district_already_beautified');
+        if (actor.gold < 1) throw httpError(409, 'not_enough_gold');
+        actor.gold -= 1;
+        found.district.beautified = true;
+        action.artistUses += 1;
+        if (action.artistUses >= 2) action.specialUsed = true;
+
+      } else if (roleId === 'tax-collector' && abilityAction === 'collect-tax') {
+        if (action.specialUsed) throw httpError(409, 'ability_already_used');
+        actor.gold = Math.min(MAX_GOLD, actor.gold + Number(session.taxPool || 0));
+        session.taxPool = 0;
+        action.specialUsed = true;
+
       } else {
         throw httpError(400, 'invalid_ability_action');
       }
