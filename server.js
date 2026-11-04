@@ -32,6 +32,56 @@ const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
 const SESSION_TTL_SECONDS = Math.max(900, Number(process.env.SESSION_TTL_SECONDS || 21600));
 const MAX_GOLD = 999;
 
+const BOT_STRATEGIES = Object.freeze({
+  adaptive: Object.freeze({
+    id: 'adaptive',
+    label: 'Alkalmazkodó',
+    description: 'Az aktuális kézhez, városhoz és lehetőségekhez igazodik.',
+    focusType: null,
+    preferredCharacters: []
+  }),
+  noble: Object.freeze({
+    id: 'noble',
+    label: 'Nemesi fókusz',
+    description: 'A nemesi kerületeket és a Királyt részesíti előnyben.',
+    focusType: 'noble',
+    preferredCharacters: ['king']
+  }),
+  religious: Object.freeze({
+    id: 'religious',
+    label: 'Egyházi fókusz',
+    description: 'Az egyházi kerületeket és a Püspököt részesíti előnyben.',
+    focusType: 'religious',
+    preferredCharacters: ['bishop']
+  }),
+  trade: Object.freeze({
+    id: 'trade',
+    label: 'Kereskedelmi fókusz',
+    description: 'A kereskedelmi kerületeket és a Kereskedőt részesíti előnyben.',
+    focusType: 'trade',
+    preferredCharacters: ['merchant']
+  }),
+  military: Object.freeze({
+    id: 'military',
+    label: 'Katonai fókusz',
+    description: 'A katonai kerületeket és a Hadurat keresi, és agresszívan rombol.',
+    focusType: 'military',
+    preferredCharacters: ['warlord']
+  }),
+  unique: Object.freeze({
+    id: 'unique',
+    label: 'Egyedi kerület fókusz',
+    description: 'Az egyedi kerületeket és az ezekhez jól illő építkező karaktereket keresi.',
+    focusType: 'unique',
+    preferredCharacters: ['architect', 'magician']
+  })
+});
+
+function normalizeBotStrategy(value) {
+  const idValue = String(value || 'adaptive');
+  return BOT_STRATEGIES[idValue] ? idValue : 'adaptive';
+}
+
 const app = express();
 const api = express.Router();
 const redis = createClient({ url: REDIS_URL });
@@ -112,6 +162,7 @@ function ensurePlayerFields(player) {
   if (!Array.isArray(player.hand)) player.hand = [];
   if (!Number.isInteger(player.gold)) player.gold = Number(player.gold || 0);
   player.isBot = Boolean(player.isBot);
+  player.botStrategy = player.isBot ? normalizeBotStrategy(player.botStrategy) : null;
   return player;
 }
 
@@ -216,11 +267,6 @@ function requireActiveActor(session, actor) {
   return current;
 }
 
-function canAdminPublicState(session, actor) {
-  const turn = activeTurn(session);
-  return actor.id === session.hostPlayerId || (turn && turn.playerId === actor.id);
-}
-
 function characterPublic(idValue) {
   const character = CHARACTER_MAP.get(idValue);
   if (!character) return null;
@@ -250,7 +296,8 @@ function playerView(session, player, actor) {
     hasCharacter: Boolean(player.characterId),
     isCrowned: player.id === session.crownPlayerId,
     isHost: player.id === session.hostPlayerId,
-    isBot: Boolean(player.isBot)
+    isBot: Boolean(player.isBot),
+    botStrategy: player.isBot ? normalizeBotStrategy(player.botStrategy) : null
   };
 }
 
@@ -310,11 +357,11 @@ function stateView(session, actor, ttlSeconds) {
     })),
     botCount: session.players.filter((player) => player.isBot).length,
     humanCount: session.players.filter((player) => !player.isBot).length,
+    botStrategies: Object.values(BOT_STRATEGIES).map(({ id, label, description }) => ({ id, label, description })),
     botActions: session.botActionLog.slice(-8),
     faceUpCharacters: (draft ? draft.faceUpIds : session.roundFaceUpCharacterIds).map(characterPublic).filter(Boolean),
     me: playerView(session, actor, actor),
     isHost: actor.id === session.hostPlayerId,
-    canAdminPublicState: canAdminPublicState(session, actor),
     players: sortedPlayers(session).map((p) => playerView(session, p, actor)),
     characters,
     districtTypes: DISTRICT_TYPES,
@@ -573,13 +620,21 @@ function setBotCount(session, requestedCount) {
       gold: 0,
       built: [],
       hand: [],
-      characterId: null
+      characterId: null,
+      botStrategy: 'adaptive'
     });
   }
 
   session.players = [...humans, ...bots];
   session.players.forEach((player, index) => { player.seatIndex = index; });
   if (!getPlayer(session, session.crownPlayerId)) session.crownPlayerId = session.hostPlayerId;
+}
+
+function setBotStrategy(session, playerId, strategyId) {
+  const player = getPlayer(session, String(playerId || ''));
+  if (!player || !player.isBot) throw httpError(404, 'bot_not_found');
+  player.botStrategy = normalizeBotStrategy(strategyId);
+  return player.botStrategy;
 }
 
 function botPick(array) {
@@ -933,6 +988,20 @@ api.post('/session/:code/bots', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+api.post('/session/:code/bots/strategy', async (req, res, next) => {
+  try {
+    await withLock(req.params.code, async () => {
+      const session = requireSession(await loadSession(req.params.code));
+      const actor = authPlayer(session, req);
+      requireHost(session, actor);
+      if (session.phase !== 'lobby') throw httpError(409, 'lobby_only');
+      setBotStrategy(session, req.body.playerId, req.body.strategy);
+      await saveSession(session);
+    });
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
 api.post('/session/:code/config/unique-districts', async (req, res, next) => {
   try {
     await withLock(req.params.code, async () => {
@@ -955,6 +1024,7 @@ api.post('/session/:code/start', async (req, res, next) => {
       requireHost(session, actor);
       if (!['lobby', 'finished'].includes(session.phase)) throw httpError(409, 'cannot_start_now');
       if (session.players.length < 4 || session.players.length > 8) throw httpError(400, 'supported_player_count');
+      session.selectedUniqueDistrictIds = validateUniqueDistrictSelection(session.selectedUniqueDistrictIds);
 
       session.round = 1;
       session.botActionLog = [];
@@ -1225,26 +1295,6 @@ api.post('/session/:code/turn/district-ability', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-api.post('/session/:code/gold', async (req, res, next) => {
-  try {
-    await withLock(req.params.code, async () => {
-      const session = requireSession(await loadSession(req.params.code));
-      const actor = authPlayer(session, req);
-      if (!['turns', 'finished'].includes(session.phase)) throw httpError(409, 'game_not_active');
-      const targetId = String(req.body.playerId || actor.id);
-      const target = getPlayer(session, targetId);
-      if (!target) throw httpError(404, 'player_not_found');
-      if (target.id !== actor.id && !canAdminPublicState(session, actor)) throw httpError(403, 'not_allowed');
-      const delta = clampInt(req.body.delta, -50, 50, 'invalid_gold_delta');
-      const nextGold = target.gold + delta;
-      if (nextGold < 0 || nextGold > MAX_GOLD) throw httpError(409, 'invalid_gold_total');
-      target.gold = nextGold;
-      await saveSession(session);
-    });
-    res.json({ ok: true });
-  } catch (err) { next(err); }
-});
-
 api.post('/session/:code/district', async (req, res, next) => {
   try {
     await withLock(req.params.code, async () => {
@@ -1379,5 +1429,7 @@ module.exports = {
   cityCompletionCount,
   validateUniqueDistrictSelection,
   setBotCount,
+  setBotStrategy,
+  BOT_STRATEGIES,
   runBots
 };
