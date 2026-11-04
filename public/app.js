@@ -395,8 +395,11 @@ function botActionsPanel() {
 function announcementsPanel() {
   const killed = characterById(state.roundEffects?.assassinatedCharacterId);
   const robbed = characterById(state.roundEffects?.thiefTargetCharacterId);
-  if (!killed && !robbed) return '';
-  return `<section class="panel compact-panel announcements">${killed ? `<span class="badge danger-badge">☠ ${escapeHtml(killed.name)}</span>` : ''}${robbed ? `<span class="badge">🗝 Tolvaj célpontja: ${escapeHtml(robbed.name)}</span>` : ''}</section>`;
+  const bewitched = characterById(state.roundEffects?.witchTargetCharacterId);
+  const orders = (state.roundEffects?.magistrateTargetCharacterIds || []).map(characterById).filter(Boolean);
+  const threatened = (state.roundEffects?.blackmailTargetCharacterIds || []).map(characterById).filter(Boolean);
+  if (!killed && !robbed && !bewitched && !orders.length && !threatened.length) return '';
+  return `<section class="panel compact-panel announcements">${killed ? `<span class="badge danger-badge">☠ ${escapeHtml(killed.name)}</span>` : ''}${robbed ? `<span class="badge">🗝 Tolvaj célpontja: ${escapeHtml(robbed.name)}</span>` : ''}${bewitched ? `<span class="badge">🧙 Megbabonázva: ${escapeHtml(bewitched.name)}</span>` : ''}${orders.map((role) => `<span class="badge">📜 Parancs: ${escapeHtml(role.name)}</span>`).join('')}${threatened.map((role) => `<span class="badge danger-badge">⚠ Fenyegetés: ${escapeHtml(role.name)}</span>`).join('')}</section>`;
 }
 
 function targetCharacterButtons(mode) {
