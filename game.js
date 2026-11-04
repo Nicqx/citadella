@@ -210,7 +210,15 @@ function createDraft(players, crownPlayerId, selectedCharacterIds = DEFAULT_CHAR
   const counts = draftDiscardCounts(playerCount);
   let pool = shuffle(characters.map((c) => c.id));
 
-  const faceDownId = pool.shift();
+  let faceDownId = pool.shift();
+  if (faceDownId === 'emperor' && pool.length) {
+    const replacementIndex = crypto.randomInt(0, pool.length);
+    faceDownId = pool[replacementIndex];
+    pool.splice(replacementIndex, 1);
+    pool.push('emperor');
+    pool = shuffle(pool);
+  }
+
   const faceUpIds = [];
   for (let i = 0; i < counts.faceUp; i += 1) {
     const eligible = pool.filter((id) => CHARACTER_MAP.get(id).rank !== 4);
