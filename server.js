@@ -1518,6 +1518,39 @@ api.post('/session/:code/turn/blackmail', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+function finalizeDistrictBuild(session, builder, currentCharacterId, card, paidCost, action) {
+  const effects = ensureRoundEffects(session);
+  let finalOwner = builder;
+  let confiscated = false;
+
+  if (
+    paidCost > 0 &&
+    effects.magistrateSignedCharacterId === currentCharacterId &&
+    !effects.magistrateUsed
+  ) {
+    const magistrate = getPlayer(session, effects.magistratePlayerId);
+    if (magistrate && magistrate.id !== builder.id && canBuildDuplicate(magistrate, card)) {
+      const builtIndex = builder.built.findIndex((district) => district.cardId === card.cardId);
+      if (builtIndex >= 0) {
+        const [taken] = builder.built.splice(builtIndex, 1);
+        builder.gold = Math.min(MAX_GOLD, builder.gold + paidCost);
+        magistrate.built.push(taken);
+        effects.magistrateUsed = true;
+        finalOwner = magistrate;
+        confiscated = true;
+      }
+    }
+  }
+
+  if (!confiscated && currentCharacterId === 'alchemist' && paidCost > 0) {
+    action.buildGoldSpent = Number(action.buildGoldSpent || 0) + paidCost;
+  }
+
+  applyBuildTax(session, finalOwner);
+  updateCityCompletion(session, finalOwner);
+  return { finalOwner, confiscated };
+}
+
 api.post('/session/:code/turn/build', async (req, res, next) => {
   try {
     await withLock(req.params.code, async () => {
@@ -1526,18 +1559,25 @@ api.post('/session/:code/turn/build', async (req, res, next) => {
       const current = requireActiveActor(session, actor);
       const action = activeAction(session);
       if (!action.resourceGathered) throw httpError(409, 'resource_required');
-      if (action.pendingDraw?.length) throw httpError(409, 'draw_choice_required');
+      if (action.pendingDraw?.length || action.specialDraw?.length) throw httpError(409, 'draw_choice_required');
+      if (action.seerPendingPlayerIds?.length) throw httpError(409, 'seer_return_required');
+      if (action.blackmailPending) throw httpError(409, 'blackmail_response_required');
 
-      const buildLimit = current.characterId === 'architect' ? 3 : 1;
+      const buildLimit = characterBuildLimit(current.characterId);
+      if (buildLimit === 0) throw httpError(409, 'character_cannot_build');
 
       const cardId = String(req.body.cardId || '');
       const cardIndex = actor.hand.findIndex((card) => card.cardId === cardId);
       if (cardIndex < 0) throw httpError(404, 'district_not_in_hand');
       const card = actor.hand[cardIndex];
-      if (card.id !== 'stables' && action.builds >= buildLimit) throw httpError(409, 'build_limit_reached');
+      if (buildConsumesLimit(current.characterId, card) && action.builds >= buildLimit) {
+        throw httpError(409, 'build_limit_reached');
+      }
       if (card.id === 'secret-vault') throw httpError(409, 'district_cannot_be_built');
       if (card.id === 'monument' && actor.built.length >= 5) throw httpError(409, 'monument_too_late');
-      if (!canBuildDuplicate(actor, card)) throw httpError(409, 'duplicate_district');
+      if (current.characterId !== 'wizard' && !canBuildDuplicate(actor, card)) {
+        throw httpError(409, 'duplicate_district');
+      }
 
       const cost = effectiveBuildCost(actor, card);
       if (actor.gold < cost) throw httpError(409, 'not_enough_gold');
@@ -1545,12 +1585,8 @@ api.post('/session/:code/turn/build', async (req, res, next) => {
       actor.gold -= cost;
       actor.hand.splice(cardIndex, 1);
       actor.built.push({ ...card, beautified: false, builtAtRound: session.round });
-      if (card.id !== 'stables') action.builds += 1;
-
-      if (!session.firstCompletedPlayerId && cityCompletionCount(actor) >= 7) {
-        session.firstCompletedPlayerId = actor.id;
-        session.finalRound = true;
-      }
+      if (buildConsumesLimit(current.characterId, card)) action.builds += 1;
+      finalizeDistrictBuild(session, actor, current.characterId, actor.built[actor.built.length - 1], cost, action);
 
       await saveSession(session);
     });
