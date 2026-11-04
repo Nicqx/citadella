@@ -15,6 +15,7 @@ const {
   districtDestructionCost
 } = require('../server');
 const { DEFAULT_UNIQUE_DISTRICT_IDS } = require('../districts');
+const { DEFAULT_CHARACTER_IDS } = require('../game');
 
 function makePlayer(id, name, seatIndex) {
   return {
@@ -264,4 +265,29 @@ test('district destruction cost includes Great Wall and beautification', () => {
   ];
 
   assert.equal(districtDestructionCost(owner, owner.built[1]), 5);
+});
+
+
+test('stateView exposes the 27-character catalog and selected rank replacements', () => {
+  const actor = makePlayer('p_host', 'Nick', 0);
+  const session = makeSession([actor]);
+  session.selectedCharacterIds = [
+    'witch', 'spy', 'seer', 'emperor', 'abbot',
+    'trader', 'scholar', 'marshal', 'artist'
+  ];
+
+  const view = stateView(session, actor, 1234);
+  assert.equal(view.characterCatalog.length, 27);
+  assert.deepEqual(view.selectedCharacterIds, session.selectedCharacterIds);
+  assert.equal(view.defaultCharacterIds.length, 9);
+  assert.deepEqual(view.defaultCharacterIds, DEFAULT_CHARACTER_IDS);
+});
+
+test('legacy session without character selection falls back to official base characters', () => {
+  const actor = makePlayer('p_host', 'Nick', 0);
+  const session = makeSession([actor]);
+  delete session.selectedCharacterIds;
+
+  const view = stateView(session, actor, 1234);
+  assert.deepEqual(view.selectedCharacterIds, DEFAULT_CHARACTER_IDS);
 });
