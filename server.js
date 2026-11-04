@@ -1641,7 +1641,7 @@ api.post('/session/:code/turn/ability', async (req, res, next) => {
       const roleId = current.characterId;
 
       if (action.bewitchedVictim) throw httpError(409, 'bewitched_action_forbidden');
-      if (abilityAction !== 'seer-return') requireNoPendingTurnChoice(action);
+      if (!['seer-return', 'scholar-keep'].includes(abilityAction)) requireNoPendingTurnChoice(action);
 
       if (roleId === 'assassin') {
         if (action.specialUsed) throw httpError(409, 'ability_already_used');
@@ -1761,23 +1761,23 @@ api.post('/session/:code/turn/ability', async (req, res, next) => {
           const cardId = String(req.body.cardId || '');
           const index = target.hand.findIndex((card) => card.cardId === cardId);
           if (index < 0) throw httpError(404, 'district_not_in_hand');
-          const [card] = target.hand.splice(index, 1);
+          const card = target.hand[index];
           const mode = String(req.body.mode || 'keep');
+
           if (mode === 'build') {
             if (card.id === 'secret-vault') throw httpError(409, 'district_cannot_be_built');
             if (card.id === 'monument' && actor.built.length >= 5) throw httpError(409, 'monument_too_late');
             const cost = effectiveBuildCost(actor, card);
-            if (actor.gold < cost) {
-              target.hand.splice(index, 0, card);
-              throw httpError(409, 'not_enough_gold');
-            }
+            if (actor.gold < cost) throw httpError(409, 'not_enough_gold');
+
+            target.hand.splice(index, 1);
             actor.gold -= cost;
             actor.built.push({ ...card, beautified: false, builtAtRound: session.round });
             finalizeDistrictBuild(session, actor, roleId, actor.built[actor.built.length - 1], cost, action);
           } else if (mode === 'keep') {
+            target.hand.splice(index, 1);
             actor.hand.push(card);
           } else {
-            target.hand.splice(index, 0, card);
             throw httpError(400, 'invalid_ability_action');
           }
           action.inspectedHand = [];
@@ -1857,6 +1857,7 @@ api.post('/session/:code/turn/ability', async (req, res, next) => {
         const card = actor.hand[cardIndex];
         if (buildConsumesLimit(roleId, card) && action.builds >= buildLimit) throw httpError(409, 'build_limit_reached');
         if (card.id === 'secret-vault') throw httpError(409, 'district_cannot_be_built');
+        if (card.id === 'monument' && actor.built.length >= 5) throw httpError(409, 'monument_too_late');
         if (!canBuildDuplicate(actor, card)) throw httpError(409, 'duplicate_district');
         const cost = effectiveBuildCost(actor, card);
         const shortage = Math.max(0, cost - actor.gold);
