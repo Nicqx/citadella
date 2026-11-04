@@ -8,6 +8,8 @@ const {
   DISTRICT_TYPES,
   CHARACTERS,
   CHARACTER_MAP,
+  DEFAULT_CHARACTER_IDS,
+  validateCharacterSelection,
   inUseCharacters,
   createDraft,
   draftOptions,
@@ -167,14 +169,23 @@ function ensurePlayerFields(player) {
 }
 
 function ensureRoundEffects(session) {
-  if (!session.roundEffects || typeof session.roundEffects !== 'object') {
-    session.roundEffects = {
-      assassinatedCharacterId: null,
-      thiefTargetCharacterId: null,
-      thiefPlayerId: null
-    };
-  }
-  return session.roundEffects;
+  if (!session.roundEffects || typeof session.roundEffects !== 'object') session.roundEffects = {};
+  const effects = session.roundEffects;
+  if (!Object.hasOwn(effects, 'assassinatedCharacterId')) effects.assassinatedCharacterId = null;
+  if (!Object.hasOwn(effects, 'thiefTargetCharacterId')) effects.thiefTargetCharacterId = null;
+  if (!Object.hasOwn(effects, 'thiefPlayerId')) effects.thiefPlayerId = null;
+  if (!Object.hasOwn(effects, 'witchTargetCharacterId')) effects.witchTargetCharacterId = null;
+  if (!Object.hasOwn(effects, 'witchPlayerId')) effects.witchPlayerId = null;
+  if (!Object.hasOwn(effects, 'witchBorrowedCharacterId')) effects.witchBorrowedCharacterId = null;
+  if (!Array.isArray(effects.magistrateTargetCharacterIds)) effects.magistrateTargetCharacterIds = [];
+  if (!Object.hasOwn(effects, 'magistrateSignedCharacterId')) effects.magistrateSignedCharacterId = null;
+  if (!Object.hasOwn(effects, 'magistratePlayerId')) effects.magistratePlayerId = null;
+  if (!Object.hasOwn(effects, 'magistrateUsed')) effects.magistrateUsed = false;
+  if (!Array.isArray(effects.blackmailTargetCharacterIds)) effects.blackmailTargetCharacterIds = [];
+  if (!Object.hasOwn(effects, 'blackmailRealCharacterId')) effects.blackmailRealCharacterId = null;
+  if (!Object.hasOwn(effects, 'blackmailerPlayerId')) effects.blackmailerPlayerId = null;
+  if (!effects.blackmailResolved || typeof effects.blackmailResolved !== 'object') effects.blackmailResolved = {};
+  return effects;
 }
 
 function ensureSessionFields(session) {
@@ -187,6 +198,12 @@ function ensureSessionFields(session) {
   if (!Array.isArray(session.selectedUniqueDistrictIds) || session.selectedUniqueDistrictIds.length !== 14) {
     session.selectedUniqueDistrictIds = [...DEFAULT_UNIQUE_DISTRICT_IDS];
   }
+  try {
+    session.selectedCharacterIds = validateCharacterSelection(session.selectedCharacterIds);
+  } catch (_err) {
+    session.selectedCharacterIds = [...DEFAULT_CHARACTER_IDS];
+  }
+  if (!Number.isInteger(session.taxPool)) session.taxPool = Number(session.taxPool || 0);
   ensureRoundEffects(session);
   return session;
 }
@@ -324,8 +341,11 @@ function stateView(session, actor, ttlSeconds) {
   const currentDraftPlayerId = session.phase === 'draft' && draft ? draft.order[draft.index] : null;
   const meIsDrafter = currentDraftPlayerId === actor.id;
   const turn = activeTurn(session);
-  const characters = (session.players.length >= 4 ? inUseCharacters(session.players.length) : CHARACTERS.filter((c) => c.rank <= 8))
-    .map((c) => characterPublic(c.id));
+  const characters = (session.players.length >= 4
+    ? inUseCharacters(session.players.length, session.selectedCharacterIds)
+    : session.selectedCharacterIds.slice(0, 8).map((idValue) => CHARACTER_MAP.get(idValue)))
+    .filter(Boolean)
+    .map((character) => characterPublic(character.id));
   const scores = session.phase === 'finished'
     ? sortedPlayers(session).map((p) => ({
       playerId: p.id,
@@ -349,6 +369,9 @@ function stateView(session, actor, ttlSeconds) {
     deckCount: session.districtDeck.length,
     selectedUniqueDistrictIds: [...session.selectedUniqueDistrictIds],
     defaultUniqueDistrictIds: [...DEFAULT_UNIQUE_DISTRICT_IDS],
+    selectedCharacterIds: [...session.selectedCharacterIds],
+    defaultCharacterIds: [...DEFAULT_CHARACTER_IDS],
+    characterCatalog: CHARACTERS.map((character) => characterPublic(character.id)),
     uniqueDistrictCatalog: UNIQUE_DISTRICTS.map((district) => ({
       id: district.id,
       name: district.name,
@@ -359,6 +382,7 @@ function stateView(session, actor, ttlSeconds) {
     humanCount: session.players.filter((player) => !player.isBot).length,
     botStrategies: Object.values(BOT_STRATEGIES).map(({ id, label, description }) => ({ id, label, description })),
     botActions: session.botActionLog.slice(-8),
+    taxPool: Number(session.taxPool || 0),
     faceUpCharacters: (draft ? draft.faceUpIds : session.roundFaceUpCharacterIds).map(characterPublic).filter(Boolean),
     me: playerView(session, actor, actor),
     isHost: actor.id === session.hostPlayerId,
@@ -406,14 +430,11 @@ function setupDistrictDeck(session) {
 function prepareDraft(session) {
   session.players.forEach((p) => { p.characterId = null; });
   session.roundFaceUpCharacterIds = [];
-  session.draft = createDraft(sortedPlayers(session), session.crownPlayerId);
+  session.draft = createDraft(sortedPlayers(session), session.crownPlayerId, session.selectedCharacterIds);
   session.turn = null;
   session.phase = 'draft';
-  session.roundEffects = {
-    assassinatedCharacterId: null,
-    thiefTargetCharacterId: null,
-    thiefPlayerId: null
-  };
+  session.roundEffects = {};
+  ensureRoundEffects(session);
 }
 
 function beginTurns(session) {
@@ -992,7 +1013,7 @@ function runBots(session) {
 }
 
 function inUseCharacterIds(session) {
-  return new Set(inUseCharacters(session.players.length).map((character) => character.id));
+  return new Set(inUseCharacters(session.players.length, session.selectedCharacterIds).map((character) => character.id));
 }
 
 function targetableCharacterIds(session, actingCharacterId) {
@@ -1037,14 +1058,12 @@ api.post('/session', async (req, res, next) => {
       crownPlayerId: playerId,
       players: [host],
       selectedUniqueDistrictIds: [...DEFAULT_UNIQUE_DISTRICT_IDS],
+      selectedCharacterIds: [...DEFAULT_CHARACTER_IDS],
+      taxPool: 0,
       districtDeck: [],
       draft: null,
       turn: null,
-      roundEffects: {
-        assassinatedCharacterId: null,
-        thiefTargetCharacterId: null,
-        thiefPlayerId: null
-      },
+      roundEffects: {},
       roundFaceUpCharacterIds: [],
       botActionLog: [],
       botActionSeq: 0,
@@ -1162,6 +1181,24 @@ api.post('/session/:code/bots/strategy', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+api.post('/session/:code/config/characters', async (req, res, next) => {
+  try {
+    await withLock(req.params.code, async () => {
+      const session = requireSession(await loadSession(req.params.code));
+      const actor = authPlayer(session, req);
+      requireHost(session, actor);
+      if (session.phase !== 'lobby') throw httpError(409, 'lobby_only');
+      try {
+        session.selectedCharacterIds = validateCharacterSelection(req.body.characterIds);
+      } catch (error) {
+        throw httpError(400, error.message);
+      }
+      await saveSession(session);
+    });
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
 api.post('/session/:code/config/unique-districts', async (req, res, next) => {
   try {
     await withLock(req.params.code, async () => {
@@ -1185,6 +1222,12 @@ api.post('/session/:code/start', async (req, res, next) => {
       if (!['lobby', 'finished'].includes(session.phase)) throw httpError(409, 'cannot_start_now');
       if (session.players.length < 4 || session.players.length > 8) throw httpError(400, 'supported_player_count');
       session.selectedUniqueDistrictIds = validateUniqueDistrictSelection(session.selectedUniqueDistrictIds);
+      try {
+        session.selectedCharacterIds = validateCharacterSelection(session.selectedCharacterIds);
+      } catch (error) {
+        throw httpError(400, error.message);
+      }
+      session.taxPool = 0;
 
       session.round = 1;
       session.botActionLog = [];
