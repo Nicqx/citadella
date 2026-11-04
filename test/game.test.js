@@ -3,6 +3,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
+  CHARACTERS,
+  DEFAULT_CHARACTER_IDS,
+  validateCharacterSelection,
   inUseCharacters,
   draftDiscardCounts,
   createDraft,
@@ -176,4 +179,39 @@ test('Museum stored cards are included in automatic unique scoring', () => {
   const score = scorePlayer(player, { firstCompletedPlayerId: null, crownPlayerId: 'p2' });
   assert.equal(score.uniqueBonus, 3);
   assert.equal(score.total, 7);
+});
+
+
+test('modern edition exposes exactly three character variants for every rank', () => {
+  assert.equal(CHARACTERS.length, 27);
+  for (let rank = 1; rank <= 9; rank += 1) {
+    assert.equal(CHARACTERS.filter((character) => character.rank === rank).length, 3);
+  }
+});
+
+test('character setup requires exactly one matching character for every rank', () => {
+  assert.deepEqual(validateCharacterSelection(DEFAULT_CHARACTER_IDS), DEFAULT_CHARACTER_IDS);
+  assert.throws(
+    () => validateCharacterSelection(DEFAULT_CHARACTER_IDS.slice(0, 8)),
+    /character_selection_count/
+  );
+
+  const invalid = [...DEFAULT_CHARACTER_IDS];
+  invalid[0] = 'spy';
+  assert.throws(() => validateCharacterSelection(invalid), /invalid_character_selection/);
+});
+
+test('custom rank replacements are used by the draft and rank four is still protected face-up', () => {
+  const custom = [
+    'witch', 'spy', 'seer', 'emperor', 'abbot',
+    'trader', 'scholar', 'marshal', 'artist'
+  ];
+
+  assert.deepEqual(inUseCharacters(8, custom).map((character) => character.id), custom);
+  assert.deepEqual(inUseCharacters(4, custom).map((character) => character.id), custom.slice(0, 8));
+
+  for (let i = 0; i < 50; i += 1) {
+    const draft = createDraft(players(4), 'p0', custom);
+    assert.equal(draft.faceUpIds.includes('emperor'), false);
+  }
 });
