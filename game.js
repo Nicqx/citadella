@@ -13,49 +13,151 @@ const DISTRICT_TYPES = Object.freeze([
 const CHARACTERS = Object.freeze([
   {
     id: 'assassin', rank: 1, name: 'Orgyilkos',
-    short: 'Nevezz meg egy másik karaktert: az a karakter kihagyja az egész körét.',
-    detail: 'Jelents be egy másik karaktert, akit meg szeretnél gyilkolni. A játékos, akinél ez a karakter van, nem fedheti fel magát, amikor szólítják, és kihagyja az egész körét.'
+    short: 'Megnevez egy karaktert; az a karakter kihagyja az egész körét.',
+    detail: 'Válassz egy másik karaktert. Ha valakinél az a karakter van, nem fedi fel, amikor szólítják, és teljesen kimarad a körből.'
+  },
+  {
+    id: 'witch', rank: 1, name: 'Boszorkány',
+    short: 'Nyersanyaggyűjtés után megbabonáz egy karaktert, majd később annak képességeivel folytatja.',
+    detail: 'A saját köröd elején gyűjts nyersanyagot, majd nevezz meg egy karaktert. A megbabonázott játékos a saját körében csak nyersanyagot gyűjt, utána te folytatod a körét a megnevezett karakter képességeivel, de a saját kezedet, aranyadat és városodat használod.'
+  },
+  {
+    id: 'magistrate', rank: 1, name: 'Magisztrátus',
+    short: 'Három karaktert megjelöl, közülük egy valódi célpont; annak első fizetős épületét elkobozhatja.',
+    detail: 'Jelölj meg három különböző karaktert, és közülük egyet valódi célpontként. Ha a valódi célpont fizet egy kerület felépítéséért, az első ilyen kerületet elkobozhatod: a célpont visszakapja a kifizetett aranyat, a kerület pedig ingyen a te városodba kerül, ha nincs már ugyanilyen kerületed.'
   },
   {
     id: 'thief', rank: 2, name: 'Tolvaj',
-    short: 'Nevezz meg egy karaktert; amikor sorra kerül, elveszed az összes aranyát.',
-    detail: 'Nem választhatsz 1-es rangú karaktert, illetve olyan karaktert, akit az Orgyilkos már célba vett. Amikor a kiválasztott karakter sorra kerül, elveszed az összes aranyát.'
+    short: 'Megnevez egy karaktert; amikor sorra kerül, elveszi az összes aranyát.',
+    detail: 'Nem választhatsz 1-es rangú karaktert, meggyilkolt vagy megbabonázott karaktert. Amikor a célpont karakter sorra kerül, elveszed az összes aranyát.'
+  },
+  {
+    id: 'spy', rank: 2, name: 'Kém',
+    short: 'Megnézi egy játékos kezét és egy megnevezett típus alapján aranyat és lapokat szerez.',
+    detail: 'Válassz egy másik játékost és egy kerülettípust. Megnézed a kezét; minden ott lévő, megnevezett típusú kártya után elvehetsz tőle 1 aranyat, amennyit csak tud fizetni, és húzol 1 kerületlapot.'
+  },
+  {
+    id: 'blackmailer', rank: 2, name: 'Zsaroló',
+    short: 'Két karaktert fenyeget meg; az egyik a valódi célpont.',
+    detail: 'Jelölj meg két különböző karaktert, egyikük legyen a valódi célpont. A fenyegetett játékos nyersanyaggyűjtés után vagy átadja aranya felét lefelé kerekítve, vagy vállalja a leleplezést; valódi célpont esetén ekkor az összes aranyát elveszti.'
   },
   {
     id: 'magician', rank: 3, name: 'Mágus',
-    short: 'Cseréld el a teljes kezed valakivel, vagy dobj el tetszőleges számú lapot és húzz ugyanannyit.',
-    detail: 'Két lehetőség közül választhatsz: a teljes kézben tartott kerületlap-készletedet elcseréled egy másik játékoséval; vagy tetszőleges számú lapot a pakli aljára teszel, és ugyanannyit húzol helyettük.'
+    short: 'Teljes kezet cserélhet, vagy tetszőleges számú lapot újrahúzhat.',
+    detail: 'Kicserélheted a teljes kezedet egy másik játékoséval, vagy tetszőleges számú saját lapot a pakli aljára tehetsz, és ugyanannyit húzhatsz helyettük.'
+  },
+  {
+    id: 'wizard', rank: 3, name: 'Varázsló',
+    short: 'Megnéz egy másik kezet, elvesz egy lapot, és akár azonnal meg is építheti.',
+    detail: 'Nézd meg egy másik játékos kezét, vegyél el egy lapot, majd vagy tedd a saját kezedbe, vagy fizesd ki és azonnal építsd meg. Az azonnali építés nem számít bele a normál építési korlátba. Ebben a körben azonos nevű kerületet is építhetsz.'
+  },
+  {
+    id: 'seer', rank: 3, name: 'Látnok',
+    short: 'Minden más játékostól véletlenül elvesz 1 lapot, majd mindenkinek visszaad 1 lapot.',
+    detail: 'Véletlenszerűen húzz egy lapot minden olyan játékos kezéből, akinek van lapja, add őket a saját kezedhez, majd minden érintett játékosnak adj vissza egy-egy lapot a saját kezedből. Az építési korlátod ebben a körben 2.'
   },
   {
     id: 'king', rank: 4, name: 'Király',
-    short: 'Nemesi kerületenként 1 aranyat kapsz, és a köröd során átveszed a koronát.',
-    detail: 'Minden nemesi kerületed után 1 aranyat kaphatsz. A köröd során átveszed a koronát, így a következő kiválasztási fázisban te választasz először karaktert.'
+    short: 'Nemesi kerületenként 1 aranyat kap, és átveszi a koronát.',
+    detail: 'Minden nemesi kerületed után 1 aranyat kaphatsz. A köröd során átveszed a koronát, így a következő kiválasztási fázisban te választasz elsőként.'
+  },
+  {
+    id: 'emperor', rank: 4, name: 'Császár',
+    short: 'Nemesi kerületenként 1 aranyat kap, majd a koronát egy másik játékosnak adja.',
+    detail: 'Minden nemesi kerületed után 1 aranyat kaphatsz. A koronát el kell venned a jelenlegi birtokosától és egy másik, nem saját játékosnak kell adnod. Az új koronás játékos 1 aranyat vagy egy véletlen kézlapot ad neked, ha tud.'
+  },
+  {
+    id: 'patrician', rank: 4, name: 'Patrícius',
+    short: 'Nemesi kerületenként 1 lapot húz, és átveszi a koronát.',
+    detail: 'Minden nemesi kerületed után 1 kerületlapot húzhatsz. A köröd során átveszed a koronát, így a következő kiválasztási fázisban te választasz elsőként.'
   },
   {
     id: 'bishop', rank: 5, name: 'Püspök',
-    short: 'Egyházi kerületenként 1 aranyat kapsz; a 8-as rangú karakter nem támadhatja a kerületeidet ebben a körben.',
-    detail: 'Minden egyházi kerületed után 1 aranyat kaphatsz. Ebben a körben a 8-as rangú karakter (például a Hadúr) nem használhatja a kerületeiden a karakterképességét.'
+    short: 'Egyházi kerületenként 1 aranyat kap; a 8-as rangú karakter nem támadhatja a kerületeit.',
+    detail: 'Minden egyházi kerületed után 1 aranyat kaphatsz. Amíg életben vagy ebben a körben, a 8-as rangú karakter nem használhatja a kerületeiden a támadó vagy cserélő képességét.'
+  },
+  {
+    id: 'abbot', rank: 5, name: 'Apát',
+    short: 'Egyházi kerületenként aranyat vagy lapot kap; ha nem ő a leggazdagabb, kap 1 aranyat a leggazdagabbtól.',
+    detail: 'Minden egyházi kerületed után választhatsz 1 aranyat vagy 1 lapot, tetszőleges kombinációban. Ha a köröd során nem vagy a legtöbb arannyal bíró játékosok között, a leggazdagabb játékosok egyikétől kapsz 1 aranyat.'
+  },
+  {
+    id: 'cardinal', rank: 5, name: 'Bíboros',
+    short: 'Egyházi kerületenként 1 lapot húz; építéshez hiányzó aranyat lapokért cserébe kérhet másik játékostól.',
+    detail: 'Minden egyházi kerületed után 1 lapot húzhatsz. Ha egy kerület felépítéséhez nincs elég aranyad, a hiányzó aranyat elveheted egy másik játékostól, minden elvett aranyért 1 lapot adva neki, majd azonnal meg kell építened a kerületet.'
   },
   {
     id: 'merchant', rank: 6, name: 'Kereskedő',
-    short: 'Kereskedelmi kerületenként 1 aranyat és ezen felül még 1 aranyat kapsz.',
-    detail: 'Minden kereskedelmi kerületed után 1 aranyat kaphatsz. Ezen felül még 1 aranyat kapsz, függetlenül attól, hogy a köröd elején milyen nyersanyagot választottál.'
+    short: 'Kereskedelmi kerületenként 1 aranyat és ezen felül még 1 aranyat kap.',
+    detail: 'Minden kereskedelmi kerületed után 1 aranyat kaphatsz. Ezen felül még 1 aranyat kapsz, függetlenül attól, milyen nyersanyagot gyűjtöttél.'
+  },
+  {
+    id: 'alchemist', rank: 6, name: 'Alkimista',
+    short: 'A kör végén visszakapja a kerületek megépítésére elköltött aranyát.',
+    detail: 'A köröd végén visszakapod azt az aranyat, amit ebben a körben kerületek építési költségére fizettél ki. Más költségek, például kerülethatások vagy adó nem járnak vissza.'
+  },
+  {
+    id: 'trader', rank: 6, name: 'Szatócs',
+    short: 'Kereskedelmi kerületenként 1 aranyat kap; a kereskedelmi épületek nem számítanak az építési korlátba.',
+    detail: 'Minden kereskedelmi kerületed után 1 aranyat kaphatsz. Ebben a körben a megépített kereskedelmi kerületek nem fogyasztják a normál építési korlátodat.'
   },
   {
     id: 'architect', rank: 7, name: 'Építész',
-    short: '2 plusz kerületlapot kapsz, és ebben a körben legfeljebb 3 kerületet építhetsz.',
+    short: '2 plusz lapot kap, és legfeljebb 3 kerületet építhet.',
     detail: 'Kapsz 2 plusz kerületlapot. Ebben a körben az építkezési korlátod 3 kerület.'
   },
   {
+    id: 'navigator', rank: 7, name: 'Navigátor',
+    short: '4 aranyat vagy 4 lapot kap, viszont ebben a körben nem építhet.',
+    detail: 'Válassz 4 aranyat vagy 4 plusz kerületlapot. Ebben a körben semmilyen kerületet nem építhetsz.'
+  },
+  {
+    id: 'scholar', rank: 7, name: 'Tudós',
+    short: '7 lapból 1-et megtart, és ebben a körben legfeljebb 2 kerületet építhet.',
+    detail: 'Húzz 7 kerületlapot, válassz közülük 1-et, a többit keverd vissza a pakliba. Ebben a körben az építkezési korlátod 2 kerület.'
+  },
+  {
     id: 'warlord', rank: 8, name: 'Hadúr',
-    short: 'Katonai kerületenként 1 aranyat kapsz; egy kerületet az értékénél 1 arannyal olcsóbban elpusztíthatsz.',
-    detail: 'Minden katonai kerületed után 1 aranyat kaphatsz. Elpusztíthatsz egy kerületet: ez az építési költségénél 1 arannyal kevesebbe kerül. Befejezett város kerületét nem pusztíthatod el.'
+    short: 'Katonai kerületenként 1 aranyat kap; egy kerületet 1 arannyal olcsóbban elpusztíthat.',
+    detail: 'Minden katonai kerületed után 1 aranyat kaphatsz. Elpusztíthatsz egy kerületet az értékénél 1 arannyal olcsóbban. Befejezett város kerületét nem pusztíthatod el.'
+  },
+  {
+    id: 'diplomat', rank: 8, name: 'Diplomata',
+    short: 'Katonai kerületenként 1 aranyat kap; elcserélhet egy saját és egy ellenfél-kerületet.',
+    detail: 'Minden katonai kerületed után 1 aranyat kaphatsz. Egy saját kerületedet elcserélheted egy másik játékos kerületére; ha az elvett kerület drágább, kifizeted a különbözetet. Befejezett városból nem vehetsz el kerületet, és duplikált kerületet sem hozhatsz létre.'
+  },
+  {
+    id: 'marshal', rank: 8, name: 'Marsall',
+    short: 'Katonai kerületenként 1 aranyat kap; legfeljebb 3 értékű ellenfél-kerületet megvásárolhat.',
+    detail: 'Minden katonai kerületed után 1 aranyat kaphatsz. Legfeljebb 3 arany értékű kerületet elkobozhatsz egy másik játékos városából, a tulajdonosnak kifizetve a kerület árát. Befejezett városból és duplikációt okozva nem teheted.'
   },
   {
     id: 'queen', rank: 9, name: 'Királynő',
-    short: 'Ha egy melletted ülő játékos 4-es rangú karaktert fed fel, 3 aranyat kapsz.',
-    detail: 'Ha olyan játékos mellett ülsz, aki 4-es rangú karaktert fedett fel, 3 aranyat kapsz. Nyolc játékosnál ezt a karaktert használjuk kilencedik karakterként.'
+    short: 'Ha mellette ülő játékos 4-es rangú karaktert fed fel, 3 aranyat kap.',
+    detail: 'Ha olyan játékos mellett ülsz, aki 4-es rangú karaktert fed fel, 3 aranyat kapsz. Ötnél kevesebb játékossal nem használható; ebben az alkalmazásban a 9-es rang 8 játékosnál kerül a karakterpakliba.'
+  },
+  {
+    id: 'artist', rank: 9, name: 'Művész',
+    short: 'Legfeljebb 2 saját kerületet megszépíthet, kerületenként 1 aranyért.',
+    detail: 'Legfeljebb két még nem megszépített saját kerületre tehetsz 1-1 aranyat. A megszépített kerület értéke tartósan +1, így pontozásnál és a Hadúr rombolási költségénél is eggyel többet ér.'
+  },
+  {
+    id: 'tax-collector', rank: 9, name: 'Adószedő',
+    short: 'A játékosok építésenként 1 arany ingatlanadót fizetnek; az Adószedő a felgyűlt adót elveheti.',
+    detail: 'Ha az Adószedő a karakterkészlet része, minden más karakter 1 arany adót fizet minden felépített kerület után, ha az építés után maradt aranya. Az adó a jelzőn marad körök között is. Az Adószedő a saját körében elveheti a teljes felgyűlt összeget.'
   }
+]);
+
+const DEFAULT_CHARACTER_IDS = Object.freeze([
+  'assassin',
+  'thief',
+  'magician',
+  'king',
+  'bishop',
+  'merchant',
+  'architect',
+  'warlord',
+  'queen'
 ]);
 
 const CHARACTER_MAP = new Map(CHARACTERS.map((c) => [c.id, c]));
@@ -69,11 +171,23 @@ function shuffle(array) {
   return copy;
 }
 
-function inUseCharacters(playerCount) {
+function validateCharacterSelection(value) {
+  const ids = Array.isArray(value) ? value.map(String) : [];
+  if (ids.length !== 9 || new Set(ids).size !== 9) throw new Error('character_selection_count');
+  for (let rank = 1; rank <= 9; rank += 1) {
+    const character = CHARACTER_MAP.get(ids[rank - 1]);
+    if (!character || character.rank !== rank) throw new Error('invalid_character_selection');
+  }
+  return ids;
+}
+
+function inUseCharacters(playerCount, selectedCharacterIds = DEFAULT_CHARACTER_IDS) {
   if (playerCount < 4 || playerCount > 8) {
     throw new Error('supported_player_count');
   }
-  return CHARACTERS.filter((c) => c.rank <= (playerCount === 8 ? 9 : 8));
+  const selected = validateCharacterSelection(selectedCharacterIds);
+  const maxRank = playerCount === 8 ? 9 : 8;
+  return selected.slice(0, maxRank).map((id) => CHARACTER_MAP.get(id));
 }
 
 function draftDiscardCounts(playerCount) {
@@ -90,9 +204,9 @@ function seatOrderFrom(players, firstPlayerId) {
   return [...ordered.slice(index), ...ordered.slice(0, index)].map((p) => p.id);
 }
 
-function createDraft(players, crownPlayerId) {
+function createDraft(players, crownPlayerId, selectedCharacterIds = DEFAULT_CHARACTER_IDS) {
   const playerCount = players.length;
-  const characters = inUseCharacters(playerCount);
+  const characters = inUseCharacters(playerCount, selectedCharacterIds);
   const counts = draftDiscardCounts(playerCount);
   let pool = shuffle(characters.map((c) => c.id));
 
@@ -230,6 +344,8 @@ module.exports = {
   DISTRICT_TYPES,
   CHARACTERS,
   CHARACTER_MAP,
+  DEFAULT_CHARACTER_IDS,
+  validateCharacterSelection,
   inUseCharacters,
   draftDiscardCounts,
   seatOrderFrom,
