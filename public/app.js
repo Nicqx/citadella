@@ -36,6 +36,18 @@ const errors = {
   draw_choice_not_active: 'Most nincs folyamatban lapválasztás.',
   invalid_draw_choice: 'Ez a lap nem választható.',
   build_limit_reached: 'Ebben a körben már elérted az építési korlátot.',
+  character_cannot_build: 'Ez a karakter ebben a körben nem építhet.',
+  bewitched_action_forbidden: 'A megbabonázott karakter a nyersanyaggyűjtés után azonnal befejezi a körét.',
+  blackmail_response_required: 'Előbb oldd fel a Zsaroló fenyegetését.',
+  blackmail_not_pending: 'Most nincs feloldandó zsarolás.',
+  invalid_blackmail_response: 'Érvénytelen válasz a zsarolásra.',
+  seer_return_required: 'A Látnokkal előbb adj vissza egy lapot minden érintett játékosnak.',
+  emperor_crown_required: 'A Császárnak a kör vége előtt át kell adnia a koronát.',
+  emperor_payment_unavailable: 'A kiválasztott ellenszolgáltatás nem elérhető.',
+  cardinal_funding_not_needed: 'Ehhez az építéshez nincs szükség a Bíboros aranycseréjére.',
+  marshal_cost_limit: 'A Marsall csak legfeljebb 3 értékű kerületet kobozhat el.',
+  district_already_beautified: 'Ez a kerület már meg van szépítve.',
+  invalid_district_target: 'Ez a kerület most nem választható célpontnak.',
   district_not_in_hand: 'Ez a kerületlap nincs a kezedben.',
   duplicate_district: 'Ilyen nevű kerület már van a városodban.',
   not_enough_gold: 'Nincs elég aranyad ehhez.',
@@ -306,8 +318,11 @@ function handPanel({ build = false, selectable = false } = {}) {
     !action?.pendingDraw?.length;
 
   return `<section class="panel stack hand-panel"><div class="section-head"><div><p class="eyebrow">Titkos</p><h2>A kezed · ${hand.length} lap</h2></div><span class="badge">csak te látod</span></div>${hand.length ? `<div class="hand-list">${hand.map((card) => {
-    const limitReached = action && action.builds >= action.buildLimit && card.id !== 'stables';
-    const cannotBuild = card.id === 'secret-vault' ||
+    const bypassLimit = card.id === 'stables' ||
+      (state.turn?.character?.id === 'trader' && card.type === 'trade');
+    const limitReached = action && action.builds >= action.buildLimit && !bypassLimit;
+    const cannotBuild = action?.buildLimit === 0 ||
+      card.id === 'secret-vault' ||
       (card.id === 'monument' && (state.me.built || []).length >= 5);
     return handCard(card, {
       build: canBuildPhase,
@@ -389,18 +404,53 @@ function targetCharacterButtons(mode) {
   const faceUpIds = new Set((state.faceUpCharacters || []).map((character) => character.id));
   return state.characters
     .filter((character) => {
-      if (faceUpIds.has(character.id)) return false;
-      if (character.id === roleId) return false;
-      if (mode === 'assassin') return character.id !== 'assassin';
-      if (mode === 'thief') {
-        return character.id !== 'assassin' &&
-          character.id !== 'thief' &&
-          character.id !== state.roundEffects?.assassinatedCharacterId;
+      if (faceUpIds.has(character.id) || character.id === roleId) return false;
+      if (mode === 'thief' || mode === 'blackmailer') {
+        if (character.rank === 1) return false;
+        if (character.id === state.roundEffects?.assassinatedCharacterId) return false;
+        if (character.id === state.roundEffects?.witchTargetCharacterId) return false;
       }
-      return false;
+      return true;
     })
     .map((character) => `<button class="character-option" data-action="ability-target-character" data-character="${character.id}"><strong>${character.rank}. ${escapeHtml(character.name)}</strong><small>${escapeHtml(character.short)}</small></button>`)
     .join('');
+}
+
+function targetCharacterSelectOptions(mode) {
+  const roleId = state.turn.character.id;
+  const faceUpIds = new Set((state.faceUpCharacters || []).map((character) => character.id));
+  return state.characters
+    .filter((character) => {
+      if (faceUpIds.has(character.id) || character.id === roleId) return false;
+      if (mode === 'blackmailer' && (
+        character.rank === 1 ||
+        character.id === state.roundEffects?.assassinatedCharacterId ||
+        character.id === state.roundEffects?.witchTargetCharacterId
+      )) return false;
+      return true;
+    })
+    .map((character) => `<option value="${character.id}">${character.rank}. ${escapeHtml(character.name)}</option>`)
+    .join('');
+}
+
+function otherPlayerOptions(filter = () => true) {
+  return state.players
+    .filter((player) => player.id !== state.me.id && filter(player))
+    .map((player) => `<option value="${player.id}">${escapeHtml(player.name)} · ${player.gold} 🪙 · ${player.handCount} lap</option>`)
+    .join('');
+}
+
+function localCharacterIncome(roleId) {
+  const type = ({
+    king: 'noble', emperor: 'noble', patrician: 'noble',
+    bishop: 'religious', abbot: 'religious', cardinal: 'religious',
+    merchant: 'trade', trader: 'trade',
+    warlord: 'military', diplomat: 'military', marshal: 'military'
+  })[roleId];
+  if (!type) return 0;
+  let amount = (state.me.built || []).filter((district) => district.type === type).length;
+  if ((state.me.built || []).some((district) => district.id === 'school-of-magic')) amount += 1;
+  return amount;
 }
 
 function warlordTargets() {
@@ -411,23 +461,51 @@ function warlordTargets() {
     for (const district of player.built) {
       if (district.id === 'keep' || citySize >= 7) continue;
       const wallExtra = hasGreatWall && district.id !== 'great-wall' ? 1 : 0;
-      const cost = Math.max(0, Number(district.cost || 0) - 1 + wallExtra);
+      const beautifiedExtra = district.beautified ? 1 : 0;
+      const cost = Math.max(0, Number(district.cost || 0) - 1 + wallExtra + beautifiedExtra);
       cards.push(`<button class="target-district secondary" data-action="warlord-destroy" data-card="${district.cardId}" ${cost > state.me.gold ? 'disabled' : ''}><strong>${escapeHtml(player.name)} · ${escapeHtml(district.name)}</strong><span>${cost} 🪙</span></button>`);
     }
   }
   return cards.join('') || '<p class="muted">Jelenleg nincs elpusztítható kerület.</p>';
 }
+
+function marshalTargets() {
+  const cards = [];
+  for (const player of state.players.filter((item) => item.id !== state.me.id)) {
+    const citySize = player.built.length + (player.built.some((district) => district.id === 'monument') ? 1 : 0);
+    if (citySize >= 7) continue;
+    for (const district of player.built) {
+      const value = Number(district.cost || 0) + (district.beautified ? 1 : 0);
+      if (value > 3) continue;
+      cards.push(`<button class="target-district secondary" data-action="marshal-seize" data-card="${district.cardId}" ${value > state.me.gold ? 'disabled' : ''}><strong>${escapeHtml(player.name)} · ${escapeHtml(district.name)}</strong><span>${value} 🪙</span></button>`);
+    }
+  }
+  return cards.join('') || '<p class="muted">Jelenleg nincs elkobozható kerület.</p>';
+}
+
 function abilityPanel() {
   if (state.turn?.activePlayerId !== state.me.id) return '';
   const role = state.turn.character;
   const action = state.turn.action;
 
-  if (role.id === 'assassin') {
-    if (action.specialUsed) {
-      const target = characterById(state.roundEffects?.assassinatedCharacterId);
-      return `<section class="panel compact-panel"><strong>☠ Célpont: ${escapeHtml(target?.name || '—')}</strong></section>`;
-    }
-    return `<section class="panel stack ability-panel"><div><p class="eyebrow">Orgyilkos</p><h2>Kit ölsz meg?</h2><p class="muted">Karakterre kattints, nem játékosra. A célpont nem tudja, hogy nála van-e a kiválasztott karakter.</p></div><div class="draft-grid">${targetCharacterButtons('assassin')}</div></section>`;
+  if (action.bewitchedVictim) {
+    return '<section class="panel compact-panel"><strong>🧙 Megbabonázva: csak nyersanyagot gyűjtesz; utána az app automatikusan továbbadja a karaktered körét a Boszorkánynak.</strong></section>';
+  }
+
+  if (action.blackmailPending) {
+    return '<section class="panel stack ability-panel"><div><p class="eyebrow">Zsarolás</p><h2>Mit teszel?</h2><p class="muted">Fizethetsz az aranyad felével (lefelé kerekítve), vagy vállalhatod a leleplezést. Ha te vagy a valódi célpont, kockáztatáskor elveszítheted az összes aranyad.</p></div><div class="actions"><button data-action="blackmail-pay">Kifizetem a felét</button><button class="danger" data-action="blackmail-risk">Kockáztatok</button></div></section>';
+  }
+
+  if (role.id === 'assassin' || role.id === 'witch') {
+    if (action.specialUsed) return `<section class="panel compact-panel"><span class="badge good">✓ ${escapeHtml(role.name)} képessége beállítva</span></section>`;
+    const needsResource = role.id === 'witch' && !action.resourceGathered;
+    return `<section class="panel stack ability-panel"><div><p class="eyebrow">${escapeHtml(role.name)}</p><h2>${role.id === 'assassin' ? 'Kit ölsz meg?' : 'Kit babonázol meg?'}</h2><p class="muted">${needsResource ? 'A Boszorkánnyal előbb nyersanyagot kell gyűjtened.' : 'Karaktert válassz, nem játékost.'}</p></div>${needsResource ? '' : `<div class="draft-grid">${targetCharacterButtons(role.id)}</div>`}</section>`;
+  }
+
+  if (role.id === 'magistrate') {
+    if (action.specialUsed) return '<section class="panel compact-panel"><span class="badge good">✓ A három parancsjelző titkos célpontja beállítva</span></section>';
+    const options = targetCharacterSelectOptions('magistrate');
+    return `<section class="panel stack ability-panel"><div><p class="eyebrow">Magisztrátus</p><h2>Parancsjelzők</h2><p class="muted">Válassz három különböző karaktert, majd közülük azt, amelyik az aláírt parancsot kapja.</p></div><div class="choice-grid"><select class="magistrate-target">${options}</select><select class="magistrate-target">${options}</select><select class="magistrate-target">${options}</select></div><label>Valódi célpont<select id="magistrate-signed">${options}</select></label><button data-action="magistrate-orders">Parancsok elhelyezése</button></section>`;
   }
 
   if (role.id === 'thief') {
@@ -435,7 +513,19 @@ function abilityPanel() {
       const target = characterById(state.roundEffects?.thiefTargetCharacterId);
       return `<section class="panel compact-panel"><strong>🗝 Célpont: ${escapeHtml(target?.name || '—')}</strong></section>`;
     }
-    return `<section class="panel stack ability-panel"><div><p class="eyebrow">Tolvaj</p><h2>Kit rabolj ki?</h2><p class="muted">Az Orgyilkos és az általa megölt karakter nem választható.</p></div><div class="draft-grid">${targetCharacterButtons('thief')}</div></section>`;
+    return `<section class="panel stack ability-panel"><div><p class="eyebrow">Tolvaj</p><h2>Kit rabolj ki?</h2><p class="muted">1-es rangú, meggyilkolt vagy megbabonázott karakter nem választható.</p></div><div class="draft-grid">${targetCharacterButtons('thief')}</div></section>`;
+  }
+
+  if (role.id === 'spy') {
+    if (action.specialUsed) return '<section class="panel compact-panel"><span class="badge good">✓ A Kém képessége felhasználva</span></section>';
+    const types = (state.districtTypes || []).map((type) => `<option value="${type.id}">${escapeHtml(type.label)}</option>`).join('');
+    return `<section class="panel stack ability-panel"><div><p class="eyebrow">Kém</p><h2>Kémkedés</h2></div><label>Játékos<select id="spy-player">${otherPlayerOptions()}</select></label><label>Kerülettípus<select id="spy-type">${types}</select></label><button data-action="spy-use">Kémkedés</button></section>`;
+  }
+
+  if (role.id === 'blackmailer') {
+    if (action.specialUsed) return '<section class="panel compact-panel"><span class="badge good">✓ A két fenyegetésjelző elhelyezve</span></section>';
+    const options = targetCharacterSelectOptions('blackmailer');
+    return `<section class="panel stack ability-panel"><div><p class="eyebrow">Zsaroló</p><h2>Fenyegetésjelzők</h2><p class="muted">Válassz két különböző karaktert és közülük a valódi célpontot.</p></div><div class="choice-grid"><select class="blackmail-target">${options}</select><select class="blackmail-target">${options}</select></div><label>Valódi célpont<select id="blackmail-real">${options}</select></label><button data-action="blackmailer-set">Fenyegetések elhelyezése</button></section>`;
   }
 
   if (role.id === 'magician') {
@@ -445,28 +535,106 @@ function abilityPanel() {
     return `<section class="panel stack ability-panel"><div><p class="eyebrow">Mágus</p><h2>Képesség</h2></div><div class="actions">${others}</div><div class="divider"></div><p class="muted">Vagy jelöld ki a saját lapjaid közül, amelyeket a pakli aljára teszel, majd húzz ugyanannyit.</p>${handPanel({ selectable: true }).replace('<section class="panel stack hand-panel">', '<div class="nested-hand stack">').replace(/<\/section>$/, '</div>')}<button class="secondary" data-action="magician-redraw">Kijelöltek újrahúzása</button></section>`;
   }
 
-  if (['king', 'bishop', 'merchant', 'warlord'].includes(role.id)) {
-    const incomeLabels = {
-      king: 'Nemesi bevétel',
-      bishop: 'Egyházi bevétel',
-      merchant: 'Kereskedelmi bevétel',
-      warlord: 'Katonai bevétel'
-    };
-    const income = action.incomeUsed
-      ? '<span class="badge good">✓ Színbevétel beszedve</span>'
-      : `<button data-action="ability-income">${incomeLabels[role.id]}</button>`;
-    const destruction = role.id === 'warlord'
-      ? `<div class="divider"></div><div><p class="eyebrow">Hadúr</p><h3>Kerület elpusztítása</h3><p class="muted">Egy kerületet az értékénél 1 arannyal olcsóbban pusztíthatsz el. A Püspök és a befejezett város védett.</p></div>${action.destructionUsed ? '<span class="badge good">✓ Pusztítás felhasználva</span>' : `<div class="target-list">${warlordTargets()}</div>`}`
-      : '';
-    return `<section class="panel stack ability-panel"><div><p class="eyebrow">${escapeHtml(role.name)}</p><h2>Karakterképesség</h2></div><div class="actions">${income}</div>${destruction}</section>`;
+  if (role.id === 'wizard') {
+    if (action.specialUsed) return '<section class="panel compact-panel"><span class="badge good">✓ A Varázsló képessége felhasználva</span></section>';
+    if (action.inspectedHand?.length || action.inspectedPlayerId) {
+      const cards = (action.inspectedHand || []).map((card) => {
+        const cost = cardCost(card);
+        return `<div class="district-row"><div class="district-row-main"><strong>${escapeHtml(card.name)}</strong><div class="row-effect">${escapeHtml(card.effect || '')}</div></div><div class="row-actions"><button data-action="wizard-take" data-card="${card.cardId}" data-mode="keep">Kézbe</button><button class="secondary" data-action="wizard-take" data-card="${card.cardId}" data-mode="build" ${cost > state.me.gold ? 'disabled' : ''}>Azonnal megépítem · ${cost} 🪙</button></div></div>`;
+      }).join('');
+      return `<section class="panel stack ability-panel"><div><p class="eyebrow">Varázsló</p><h2>Válassz egy lapot</h2></div>${cards || '<p class="muted">A játékos kezében nincs lap.</p>'}</section>`;
+    }
+    return `<section class="panel stack ability-panel"><div><p class="eyebrow">Varázsló</p><h2>Kinek nézed meg a kezét?</h2></div><div class="actions">${state.players.filter((p) => p.id !== state.me.id).map((p) => `<button class="secondary" data-action="wizard-inspect" data-player="${p.id}">${escapeHtml(p.name)} · ${p.handCount} lap</button>`).join('')}</div></section>`;
+  }
+
+  if (role.id === 'seer') {
+    if (action.seerPendingPlayerIds?.length) {
+      const targetId = action.seerPendingPlayerIds[0];
+      const target = state.players.find((player) => player.id === targetId);
+      const options = (state.me.hand || []).map((card) => `<option value="${card.cardId}">${escapeHtml(card.name)} · ${card.cost} 🪙</option>`).join('');
+      return `<section class="panel stack ability-panel"><div><p class="eyebrow">Látnok</p><h2>Adj vissza 1 lapot: ${escapeHtml(target?.name || 'játékos')}</h2></div><select id="seer-return-card">${options}</select><button data-action="seer-return" data-player="${targetId}">Lap visszaadása</button></section>`;
+    }
+    if (action.specialUsed) return '<section class="panel compact-panel"><span class="badge good">✓ A Látnok cseréje befejezve · ebben a körben 2 kerületet építhetsz</span></section>';
+    return '<section class="panel stack ability-panel"><div><p class="eyebrow">Látnok</p><h2>Véletlen lapcsere</h2><p class="muted">Minden más játékostól véletlenül kapsz egy lapot, majd mindegyik érintett játékosnak visszaadsz egyet.</p></div><button data-action="seer-draw">Lapok elvétele</button></section>';
+  }
+
+  const goldIncomeRoles = ['king', 'emperor', 'bishop', 'merchant', 'trader', 'warlord', 'diplomat', 'marshal'];
+  const cardIncomeRoles = ['patrician', 'cardinal'];
+  if (goldIncomeRoles.includes(role.id) || cardIncomeRoles.includes(role.id) || role.id === 'abbot') {
+    const amount = localCharacterIncome(role.id);
+    let income = '';
+    if (role.id === 'abbot') {
+      const choices = Array.from({ length: amount + 1 }, (_, gold) => `<option value="${gold}">${gold} arany + ${amount - gold} lap</option>`).join('');
+      income = action.incomeUsed
+        ? '<span class="badge good">✓ Egyházi bevétel beszedve</span>'
+        : `<div class="inline-control"><select id="abbot-gold-count">${choices}</select><button data-action="abbot-income">Apát bevétele</button></div>`;
+    } else {
+      const label = cardIncomeRoles.includes(role.id)
+        ? `${amount} lap beszedése`
+        : `${amount} arany beszedése`;
+      income = action.incomeUsed ? '<span class="badge good">✓ Színbevétel beszedve</span>' : `<button data-action="ability-income">${label}</button>`;
+    }
+
+    let extra = '';
+    if (role.id === 'emperor') {
+      const payment = '<option value="gold">1 arany</option><option value="card">1 véletlen lap</option><option value="none">Semmi (csak ha nincs miből)</option>';
+      extra = action.specialUsed
+        ? '<span class="badge good">✓ Korona átadva</span>'
+        : `<div class="divider"></div><label>Új koronás játékos<select id="emperor-player">${otherPlayerOptions((p) => !p.isCrowned)}</select></label><label>Ellenszolgáltatás<select id="emperor-payment">${payment}</select></label><button data-action="emperor-crown">Korona átadása</button>`;
+    } else if (role.id === 'warlord') {
+      extra = `<div class="divider"></div><div><p class="eyebrow">Hadúr</p><h3>Kerület elpusztítása</h3></div>${action.destructionUsed ? '<span class="badge good">✓ Pusztítás felhasználva</span>' : `<div class="target-list">${warlordTargets()}</div>`}`;
+    } else if (role.id === 'diplomat') {
+      const own = (state.me.built || []).map((district) => `<option value="${district.cardId}">${escapeHtml(district.name)} · ${district.cost} 🪙</option>`).join('');
+      const targets = state.players.filter((p) => p.id !== state.me.id).flatMap((p) => p.built.map((district) => `<option value="${district.cardId}">${escapeHtml(p.name)} · ${escapeHtml(district.name)} · ${district.cost} 🪙</option>`)).join('');
+      extra = action.specialUsed
+        ? '<span class="badge good">✓ Kerületcsere felhasználva</span>'
+        : `<div class="divider"></div><label>Saját kerület<select id="diplomat-own">${own}</select></label><label>Másik kerület<select id="diplomat-target">${targets}</select></label><button data-action="diplomat-swap">Kerületek cseréje</button>`;
+    } else if (role.id === 'marshal') {
+      extra = `<div class="divider"></div>${action.specialUsed ? '<span class="badge good">✓ Elkobzás felhasználva</span>' : `<div class="target-list">${marshalTargets()}</div>`}`;
+    } else if (role.id === 'cardinal' && !action.specialUsed) {
+      const expensive = (state.me.hand || []).filter((card) => cardCost(card) > state.me.gold && card.id !== 'secret-vault');
+      if (expensive.length) {
+        const cards = expensive.map((card) => `<option value="${card.cardId}">${escapeHtml(card.name)} · ${cardCost(card)} 🪙</option>`).join('');
+        const paymentCards = (state.me.hand || []).map((card) => `<label class="compact-check"><input type="checkbox" name="cardinal-payment" value="${card.cardId}"> ${escapeHtml(card.name)}</label>`).join('');
+        extra = `<div class="divider"></div><p class="muted">Ha nincs elég aranyad, a hiányzó összeget egy játékostól kérheted, minden aranyért 1 saját lapot átadva.</p><label>Megépítendő kerület<select id="cardinal-build-card">${cards}</select></label><label>Aranyat adó játékos<select id="cardinal-player">${otherPlayerOptions()}</select></label><div class="compact-check-list">${paymentCards}</div><button data-action="cardinal-build">Bíborossal megépítem</button>`;
+      }
+    }
+    return `<section class="panel stack ability-panel"><div><p class="eyebrow">${escapeHtml(role.name)}</p><h2>Karakterképesség</h2></div><div class="actions">${income}</div>${extra}</section>`;
+  }
+
+  if (role.id === 'alchemist') {
+    return '<section class="panel compact-panel"><strong>⚗️ Az Alkimista a kör végén automatikusan visszakapja az ebben a körben kerületépítésre elköltött aranyat.</strong></section>';
   }
 
   if (role.id === 'architect') {
     return '<section class="panel compact-panel"><strong>🃏 Az Építész 2 plusz lapját automatikusan megkaptad. Ebben a körben legfeljebb 3 kerületet építhetsz.</strong></section>';
   }
 
+  if (role.id === 'navigator') {
+    if (action.specialUsed) return '<section class="panel compact-panel"><span class="badge good">✓ A Navigátor plusz nyersanyaga felvéve · ebben a körben nem építhetsz</span></section>';
+    return '<section class="panel stack ability-panel"><div><p class="eyebrow">Navigátor</p><h2>Plusz nyersanyag</h2><p class="muted">Válassz 4 aranyat vagy 4 lapot. Ebben a körben nem építhetsz.</p></div><div class="actions"><button data-action="navigator-resource" data-mode="gold">+4 arany</button><button class="secondary" data-action="navigator-resource" data-mode="cards">+4 lap</button></div></section>';
+  }
+
+  if (role.id === 'scholar') {
+    if (action.specialDraw?.length) {
+      return `<section class="panel stack ability-panel"><div><p class="eyebrow">Tudós</p><h2>Válassz 1-et a 7 lapból</h2></div><div class="hand-list">${action.specialDraw.map((card) => `<div class="district-row"><div class="district-row-main"><strong>${escapeHtml(card.name)}</strong><div class="row-effect">${escapeHtml(card.effect || '')}</div></div><button data-action="scholar-keep" data-card="${card.cardId}">Ezt tartom meg</button></div>`).join('')}</div></section>`;
+    }
+    if (action.specialUsed) return '<section class="panel compact-panel"><span class="badge good">✓ A Tudós lapja kiválasztva · ebben a körben 2 kerületet építhetsz</span></section>';
+    return '<section class="panel stack ability-panel"><div><p class="eyebrow">Tudós</p><h2>7 lapból 1</h2></div><button data-action="scholar-draw">7 lap húzása</button></section>';
+  }
+
   if (role.id === 'queen') {
-    return '<section class="panel compact-panel"><strong>♛ A Királynő szomszédsági bónuszát az app automatikusan kezeli.</strong></section>';
+    return '<section class="panel compact-panel"><strong>♛ A Királynő szomszédsági bónuszát az app automatikusan kezeli, a meggyilkolt 4-es rangú karakter esetét is beleértve.</strong></section>';
+  }
+
+  if (role.id === 'artist') {
+    const targets = (state.me.built || []).filter((district) => !district.beautified)
+      .map((district) => `<button class="secondary" data-action="artist-beautify" data-card="${district.cardId}" ${state.me.gold < 1 || action.artistUses >= 2 ? 'disabled' : ''}>${escapeHtml(district.name)} · 1 🪙</button>`).join('');
+    return `<section class="panel stack ability-panel"><div><p class="eyebrow">Művész</p><h2>Kerület megszépítése · ${action.artistUses}/2</h2></div><div class="actions">${targets || '<span class="muted">Nincs megszépíthető kerületed.</span>'}</div></section>`;
+  }
+
+  if (role.id === 'tax-collector') {
+    return `<section class="panel stack ability-panel"><div><p class="eyebrow">Adószedő</p><h2>Ingatlanadó · ${state.taxPool || 0} 🪙</h2></div>${action.specialUsed ? '<span class="badge good">✓ Az adó beszedve</span>' : `<button data-action="collect-tax" ${!state.taxPool ? 'disabled' : ''}>Felgyűlt adó beszedése</button>`}</section>`;
   }
 
   return '';
