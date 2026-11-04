@@ -756,8 +756,8 @@ function taxCollectorActive(session) {
   return session.selectedCharacterIds?.[8] === 'tax-collector';
 }
 
-function applyBuildTax(session, payer) {
-  if (!taxCollectorActive(session) || !payer || payer.characterId === 'tax-collector' || payer.gold <= 0) return 0;
+function applyBuildTax(session, payer, actingCharacterId = payer?.characterId) {
+  if (!taxCollectorActive(session) || !payer || actingCharacterId === 'tax-collector' || payer.gold <= 0) return 0;
   payer.gold -= 1;
   session.taxPool = Number(session.taxPool || 0) + 1;
   return 1;
@@ -1763,7 +1763,11 @@ function finalizeDistrictBuild(session, builder, currentCharacterId, card, paidC
     action.buildGoldSpent = Number(action.buildGoldSpent || 0) + paidCost;
   }
 
-  applyBuildTax(session, finalOwner);
+  applyBuildTax(
+    session,
+    finalOwner,
+    confiscated ? finalOwner.characterId : currentCharacterId
+  );
   updateCityCompletion(session, finalOwner);
   return { finalOwner, confiscated };
 }
