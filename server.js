@@ -326,12 +326,20 @@ function turnActionView(session, actor) {
   return {
     resourceGathered: Boolean(action.resourceGathered),
     builds: Number(action.builds || 0),
-    buildLimit: current?.characterId === 'architect' ? 3 : 1,
+    buildLimit: current ? characterBuildLimit(current.characterId) : 1,
     incomeUsed: Boolean(action.incomeUsed),
     specialUsed: Boolean(action.specialUsed),
     destructionUsed: Boolean(action.destructionUsed),
+    witchContinuation: Boolean(action.witchContinuation),
+    bewitchedVictim: Boolean(action.bewitchedVictim),
+    blackmailPending: Boolean(action.blackmailPending),
+    artistUses: Number(action.artistUses || 0),
     districtUses: selfActive ? { ...(action.districtUses || {}) } : {},
-    pendingDraw: selfActive ? (action.pendingDraw || []).map(districtPublic) : []
+    pendingDraw: selfActive ? (action.pendingDraw || []).map(districtPublic) : [],
+    specialDraw: selfActive ? (action.specialDraw || []).map(districtPublic) : [],
+    inspectedHand: selfActive ? (action.inspectedHand || []).map(districtPublic) : [],
+    inspectedPlayerId: selfActive ? (action.inspectedPlayerId || null) : null,
+    seerPendingPlayerIds: selfActive ? [...(action.seerPendingPlayerIds || [])] : []
   };
 }
 
@@ -584,18 +592,72 @@ function hasDistrict(player, districtId) {
   return player.built.some((district) => district.id === districtId);
 }
 
-function characterIncome(actor, characterId) {
-  const typeByCharacter = {
+function characterIncomeType(characterId) {
+  return {
     king: 'noble',
+    emperor: 'noble',
+    patrician: 'noble',
     bishop: 'religious',
+    abbot: 'religious',
+    cardinal: 'religious',
     merchant: 'trade',
-    warlord: 'military'
-  };
-  const type = typeByCharacter[characterId];
+    trader: 'trade',
+    warlord: 'military',
+    diplomat: 'military',
+    marshal: 'military'
+  }[characterId] || null;
+}
+
+function characterIncome(actor, characterId) {
+  const type = characterIncomeType(characterId);
   if (!type) return 0;
   let amount = actor.built.filter((district) => district.type === type).length;
   if (hasDistrict(actor, 'school-of-magic')) amount += 1;
   return amount;
+}
+
+function characterBuildLimit(characterId) {
+  if (characterId === 'navigator') return 0;
+  if (characterId === 'architect') return 3;
+  if (characterId === 'seer' || characterId === 'scholar') return 2;
+  return 1;
+}
+
+function buildConsumesLimit(characterId, card) {
+  if (card.id === 'stables') return false;
+  if (characterId === 'trader' && card.type === 'trade') return false;
+  return true;
+}
+
+function isRankFourCharacter(characterId) {
+  return CHARACTER_MAP.get(characterId)?.rank === 4;
+}
+
+function isRankEightProtected(session, owner) {
+  const effects = ensureRoundEffects(session);
+  if (owner.characterId === 'bishop' && effects.assassinatedCharacterId !== 'bishop') return true;
+  return owner.id === effects.witchPlayerId &&
+    effects.witchBorrowedCharacterId === 'bishop' &&
+    effects.assassinatedCharacterId !== 'bishop';
+}
+
+function taxCollectorActive(session) {
+  if (session.players.length !== 8) return false;
+  return session.selectedCharacterIds?.[8] === 'tax-collector';
+}
+
+function applyBuildTax(session, payer) {
+  if (!taxCollectorActive(session) || !payer || payer.characterId === 'tax-collector' || payer.gold <= 0) return 0;
+  payer.gold -= 1;
+  session.taxPool = Number(session.taxPool || 0) + 1;
+  return 1;
+}
+
+function updateCityCompletion(session, player) {
+  if (!session.firstCompletedPlayerId && cityCompletionCount(player) >= 7) {
+    session.firstCompletedPlayerId = player.id;
+    session.finalRound = true;
+  }
 }
 
 function findBuiltDistrict(session, districtCardId) {
