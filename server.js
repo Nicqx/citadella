@@ -589,6 +589,25 @@ function activateCurrentTurn(session) {
   if (session.turn) completeRound(session);
 }
 
+function afterResourceChoice(session) {
+  const current = activeTurn(session);
+  const action = activeAction(session);
+  if (!current || !action || !action.resourceGathered || action.pendingDraw?.length) return;
+
+  if (action.bewitchedVictim) {
+    finishBewitchedVictim(session);
+    return;
+  }
+
+  const effects = ensureRoundEffects(session);
+  if (
+    effects.blackmailTargetCharacterIds.includes(current.characterId) &&
+    !effects.blackmailResolved[current.characterId]
+  ) {
+    action.blackmailPending = true;
+  }
+}
+
 function calculateWinner(session) {
   const ranked = sortedPlayers(session).map((p) => {
     const score = scorePlayer(p, session);
@@ -1437,6 +1456,7 @@ api.post('/session/:code/turn/resource', async (req, res, next) => {
       } else {
         throw httpError(400, 'invalid_resource_mode');
       }
+      afterResourceChoice(session);
       await saveSession(session);
     });
     res.json({ ok: true });
@@ -1458,6 +1478,40 @@ api.post('/session/:code/turn/resource/keep', async (req, res, next) => {
       actor.hand.push(chosen);
       putOnDeckBottom(session, pending.filter((card) => card.cardId !== cardId));
       action.pendingDraw = [];
+      afterResourceChoice(session);
+      await saveSession(session);
+    });
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+api.post('/session/:code/turn/blackmail', async (req, res, next) => {
+  try {
+    await withLock(req.params.code, async () => {
+      const session = requireSession(await loadSession(req.params.code));
+      const actor = authPlayer(session, req);
+      const current = requireActiveActor(session, actor);
+      const action = activeAction(session);
+      const effects = ensureRoundEffects(session);
+      if (!action.blackmailPending) throw httpError(409, 'blackmail_not_pending');
+
+      const blackmailer = getPlayer(session, effects.blackmailerPlayerId);
+      const response = String(req.body.response || '');
+      if (response === 'pay') {
+        const amount = Math.floor(actor.gold / 2);
+        actor.gold -= amount;
+        if (blackmailer) blackmailer.gold = Math.min(MAX_GOLD, blackmailer.gold + amount);
+      } else if (response === 'risk') {
+        if (effects.blackmailRealCharacterId === current.characterId && blackmailer) {
+          blackmailer.gold = Math.min(MAX_GOLD, blackmailer.gold + actor.gold);
+          actor.gold = 0;
+        }
+      } else {
+        throw httpError(400, 'invalid_blackmail_response');
+      }
+
+      effects.blackmailResolved[current.characterId] = true;
+      action.blackmailPending = false;
       await saveSession(session);
     });
     res.json({ ok: true });
