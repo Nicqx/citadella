@@ -1188,13 +1188,15 @@ function inUseCharacterIds(session) {
 function targetableCharacterIds(session, actingCharacterId) {
   const ids = inUseCharacterIds(session);
   for (const characterId of session.roundFaceUpCharacterIds || []) ids.delete(characterId);
+  ids.delete(actingCharacterId);
 
-  if (actingCharacterId === 'assassin') {
-    ids.delete('assassin');
-  } else if (actingCharacterId === 'thief') {
-    ids.delete('assassin');
-    ids.delete('thief');
-    ids.delete(ensureRoundEffects(session).assassinatedCharacterId);
+  const effects = ensureRoundEffects(session);
+  if (actingCharacterId === 'thief' || actingCharacterId === 'blackmailer') {
+    for (const characterId of [...ids]) {
+      if (CHARACTER_MAP.get(characterId)?.rank === 1) ids.delete(characterId);
+    }
+    ids.delete(effects.assassinatedCharacterId);
+    ids.delete(effects.witchTargetCharacterId);
   }
   return ids;
 }
