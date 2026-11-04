@@ -633,7 +633,9 @@ function setBotCount(session, requestedCount) {
 function setBotStrategy(session, playerId, strategyId) {
   const player = getPlayer(session, String(playerId || ''));
   if (!player || !player.isBot) throw httpError(404, 'bot_not_found');
-  player.botStrategy = normalizeBotStrategy(strategyId);
+  const requested = String(strategyId || '');
+  if (!BOT_STRATEGIES[requested]) throw httpError(400, 'invalid_bot_strategy');
+  player.botStrategy = requested;
   return player.botStrategy;
 }
 
@@ -1588,5 +1590,8 @@ module.exports = {
   setBotCount,
   setBotStrategy,
   BOT_STRATEGIES,
+  botChooseCharacter,
+  botCardScore,
+  districtDestructionCost,
   runBots
 };
