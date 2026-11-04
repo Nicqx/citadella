@@ -1,18 +1,18 @@
 # Citadella – telefonos asztal
 
-Mobilbarát, Redis-alapú Citadella játékszoba. Az alkalmazás kezeli a titkos karakterválasztást, a kerületpaklit és a játékosok privát kezét, az aranyat, az építést, a körsorrendet és a legfontosabb karakterképességeket.
+Mobilbarát, Redis-alapú Citadella játékszoba. Az alkalmazás kezeli a titkos karakterválasztást, a kerületpaklit és a játékosok privát kezét, az aranyat, az építést, a körsorrendet és a modern kiadás 27 karakterváltozatát.
 
 ## Jelenlegi játékmód
 
 - 4–8 résztvevő; a valós játékosok mellé a lobbyban szimulált játékosok adhatók.
 - Minden játékos 2 arannyal és 4 titkos kerületlappal indul.
-- A kerületpakli mindig 54 alap + pontosan 14 egyedi kerületből áll, a játékosszámtól függetlenül. Az egyedi kerületek a teljes, 30 lapos készletből választhatók ki indulás előtt; a lobbyban van alapkészlet-, mind-kijelölés- és kijelöléstörlés gyorsgomb, de menteni és játékot indítani csak pontosan 14 kijelölt lappal lehet.
+- A kerületpakli mindig 54 alap + pontosan 14 egyedi kerületből áll, a játékosszámtól függetlenül. Az egyedi kerületek a teljes, 30 lapos készletből választhatók ki indulás előtt; a lobbyban van alapkészlet-, véletlen 14- és kijelöléstörlés gyorsgomb, de menteni és játékot indítani csak pontosan 14 kijelölt lappal lehet.
 - A saját kéz csak a saját telefonon látható; más játékosok csak a kézlapok számát látják.
 - A kör elején az aktív játékos 2 aranyat választ, vagy 2 kerületlapból 1-et tart meg.
 - Építeni közvetlenül a saját kézben látható lapra kattintva lehet; az app levonja az aranyat és az asztalra teszi a kerületet.
-- Normál karakter körönként legfeljebb 1, az Építész legfeljebb 3 kerületet építhet.
-- 4–7 főnél a klasszikus 1–8. rangú karakterek szerepelnek.
-- 8 főnél kilencedik karakterként a Királynő kerül be.
+- A modern kiadás 27 karaktere mind elérhető: minden 1–9. ranghoz három lehetséges karakter tartozik, amelyek közül a házigazda rangonként egyet választ.
+- 4–7 főnél a kiválasztott 1–8. rangú karakterek szerepelnek; 8 főnél a kiválasztott 9. rangú karakter is bekerül.
+- Az alternatív karakterek eltérő építési korlátai és interaktív képességei is részei a digitális körvezetésnek.
 - A kiválasztási fázis kezeli a nyílt/rejtett félretett karaktereket és a 7–8 játékosra vonatkozó utolsó választó szabályát.
 - A karaktered és a képességed a saját telefonodon végig látszik.
 - A `?` gomb teljes játékmeneti segédletet mutat: cél, előkészítés, karakterválasztás, kör menete, pontozás, karakterek és az egyedi kerületek hatásai.

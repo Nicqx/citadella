@@ -8,6 +8,8 @@ const {
   DISTRICT_TYPES,
   CHARACTERS,
   CHARACTER_MAP,
+  DEFAULT_CHARACTER_IDS,
+  validateCharacterSelection,
   inUseCharacters,
   createDraft,
   draftOptions,
@@ -43,37 +45,37 @@ const BOT_STRATEGIES = Object.freeze({
   noble: Object.freeze({
     id: 'noble',
     label: 'Nemesi fókusz',
-    description: 'A nemesi kerületeket és a Királyt részesíti előnyben.',
+    description: 'A nemesi kerületeket és a 4-es rangú nemesi karaktereket részesíti előnyben.',
     focusType: 'noble',
-    preferredCharacters: ['king']
+    preferredCharacters: ['king', 'emperor', 'patrician']
   }),
   religious: Object.freeze({
     id: 'religious',
     label: 'Egyházi fókusz',
-    description: 'Az egyházi kerületeket és a Püspököt részesíti előnyben.',
+    description: 'Az egyházi kerületeket és az 5-ös rangú egyházi karaktereket részesíti előnyben.',
     focusType: 'religious',
-    preferredCharacters: ['bishop']
+    preferredCharacters: ['bishop', 'abbot', 'cardinal']
   }),
   trade: Object.freeze({
     id: 'trade',
     label: 'Kereskedelmi fókusz',
-    description: 'A kereskedelmi kerületeket és a Kereskedőt részesíti előnyben.',
+    description: 'A kereskedelmi kerületeket és a 6-os rangú kereskedelmi karaktereket részesíti előnyben.',
     focusType: 'trade',
-    preferredCharacters: ['merchant']
+    preferredCharacters: ['merchant', 'trader', 'alchemist']
   }),
   military: Object.freeze({
     id: 'military',
     label: 'Katonai fókusz',
-    description: 'A katonai kerületeket és a Hadurat keresi, és agresszívan rombol.',
+    description: 'A katonai kerületeket és a 8-as rangú katonai karaktereket keresi, és agresszívan támad.',
     focusType: 'military',
-    preferredCharacters: ['warlord']
+    preferredCharacters: ['warlord', 'marshal', 'diplomat']
   }),
   unique: Object.freeze({
     id: 'unique',
     label: 'Egyedi kerület fókusz',
     description: 'Az egyedi kerületeket és az ezekhez jól illő építkező karaktereket keresi.',
     focusType: 'unique',
-    preferredCharacters: ['architect', 'magician']
+    preferredCharacters: ['architect', 'scholar', 'wizard', 'magician', 'seer']
   })
 });
 
@@ -167,14 +169,23 @@ function ensurePlayerFields(player) {
 }
 
 function ensureRoundEffects(session) {
-  if (!session.roundEffects || typeof session.roundEffects !== 'object') {
-    session.roundEffects = {
-      assassinatedCharacterId: null,
-      thiefTargetCharacterId: null,
-      thiefPlayerId: null
-    };
-  }
-  return session.roundEffects;
+  if (!session.roundEffects || typeof session.roundEffects !== 'object') session.roundEffects = {};
+  const effects = session.roundEffects;
+  if (!Object.hasOwn(effects, 'assassinatedCharacterId')) effects.assassinatedCharacterId = null;
+  if (!Object.hasOwn(effects, 'thiefTargetCharacterId')) effects.thiefTargetCharacterId = null;
+  if (!Object.hasOwn(effects, 'thiefPlayerId')) effects.thiefPlayerId = null;
+  if (!Object.hasOwn(effects, 'witchTargetCharacterId')) effects.witchTargetCharacterId = null;
+  if (!Object.hasOwn(effects, 'witchPlayerId')) effects.witchPlayerId = null;
+  if (!Object.hasOwn(effects, 'witchBorrowedCharacterId')) effects.witchBorrowedCharacterId = null;
+  if (!Array.isArray(effects.magistrateTargetCharacterIds)) effects.magistrateTargetCharacterIds = [];
+  if (!Object.hasOwn(effects, 'magistrateSignedCharacterId')) effects.magistrateSignedCharacterId = null;
+  if (!Object.hasOwn(effects, 'magistratePlayerId')) effects.magistratePlayerId = null;
+  if (!Object.hasOwn(effects, 'magistrateUsed')) effects.magistrateUsed = false;
+  if (!Array.isArray(effects.blackmailTargetCharacterIds)) effects.blackmailTargetCharacterIds = [];
+  if (!Object.hasOwn(effects, 'blackmailRealCharacterId')) effects.blackmailRealCharacterId = null;
+  if (!Object.hasOwn(effects, 'blackmailerPlayerId')) effects.blackmailerPlayerId = null;
+  if (!effects.blackmailResolved || typeof effects.blackmailResolved !== 'object') effects.blackmailResolved = {};
+  return effects;
 }
 
 function ensureSessionFields(session) {
@@ -187,6 +198,12 @@ function ensureSessionFields(session) {
   if (!Array.isArray(session.selectedUniqueDistrictIds) || session.selectedUniqueDistrictIds.length !== 14) {
     session.selectedUniqueDistrictIds = [...DEFAULT_UNIQUE_DISTRICT_IDS];
   }
+  try {
+    session.selectedCharacterIds = validateCharacterSelection(session.selectedCharacterIds);
+  } catch (_err) {
+    session.selectedCharacterIds = [...DEFAULT_CHARACTER_IDS];
+  }
+  if (!Number.isInteger(session.taxPool)) session.taxPool = Number(session.taxPool || 0);
   ensureRoundEffects(session);
   return session;
 }
@@ -309,12 +326,20 @@ function turnActionView(session, actor) {
   return {
     resourceGathered: Boolean(action.resourceGathered),
     builds: Number(action.builds || 0),
-    buildLimit: current?.characterId === 'architect' ? 3 : 1,
+    buildLimit: current ? characterBuildLimit(current.characterId) : 1,
     incomeUsed: Boolean(action.incomeUsed),
     specialUsed: Boolean(action.specialUsed),
     destructionUsed: Boolean(action.destructionUsed),
+    witchContinuation: Boolean(action.witchContinuation),
+    bewitchedVictim: Boolean(action.bewitchedVictim),
+    blackmailPending: Boolean(action.blackmailPending),
+    artistUses: Number(action.artistUses || 0),
     districtUses: selfActive ? { ...(action.districtUses || {}) } : {},
-    pendingDraw: selfActive ? (action.pendingDraw || []).map(districtPublic) : []
+    pendingDraw: selfActive ? (action.pendingDraw || []).map(districtPublic) : [],
+    specialDraw: selfActive ? (action.specialDraw || []).map(districtPublic) : [],
+    inspectedHand: selfActive ? (action.inspectedHand || []).map(districtPublic) : [],
+    inspectedPlayerId: selfActive ? (action.inspectedPlayerId || null) : null,
+    seerPendingPlayerIds: selfActive ? [...(action.seerPendingPlayerIds || [])] : []
   };
 }
 
@@ -324,8 +349,11 @@ function stateView(session, actor, ttlSeconds) {
   const currentDraftPlayerId = session.phase === 'draft' && draft ? draft.order[draft.index] : null;
   const meIsDrafter = currentDraftPlayerId === actor.id;
   const turn = activeTurn(session);
-  const characters = (session.players.length >= 4 ? inUseCharacters(session.players.length) : CHARACTERS.filter((c) => c.rank <= 8))
-    .map((c) => characterPublic(c.id));
+  const characters = (session.players.length >= 4
+    ? inUseCharacters(session.players.length, session.selectedCharacterIds)
+    : session.selectedCharacterIds.slice(0, 8).map((idValue) => CHARACTER_MAP.get(idValue)))
+    .filter(Boolean)
+    .map((character) => characterPublic(character.id));
   const scores = session.phase === 'finished'
     ? sortedPlayers(session).map((p) => ({
       playerId: p.id,
@@ -349,6 +377,9 @@ function stateView(session, actor, ttlSeconds) {
     deckCount: session.districtDeck.length,
     selectedUniqueDistrictIds: [...session.selectedUniqueDistrictIds],
     defaultUniqueDistrictIds: [...DEFAULT_UNIQUE_DISTRICT_IDS],
+    selectedCharacterIds: [...session.selectedCharacterIds],
+    defaultCharacterIds: [...DEFAULT_CHARACTER_IDS],
+    characterCatalog: CHARACTERS.map((character) => characterPublic(character.id)),
     uniqueDistrictCatalog: UNIQUE_DISTRICTS.map((district) => ({
       id: district.id,
       name: district.name,
@@ -359,6 +390,7 @@ function stateView(session, actor, ttlSeconds) {
     humanCount: session.players.filter((player) => !player.isBot).length,
     botStrategies: Object.values(BOT_STRATEGIES).map(({ id, label, description }) => ({ id, label, description })),
     botActions: session.botActionLog.slice(-8),
+    taxPool: Number(session.taxPool || 0),
     faceUpCharacters: (draft ? draft.faceUpIds : session.roundFaceUpCharacterIds).map(characterPublic).filter(Boolean),
     me: playerView(session, actor, actor),
     isHost: actor.id === session.hostPlayerId,
@@ -367,7 +399,10 @@ function stateView(session, actor, ttlSeconds) {
     districtTypes: DISTRICT_TYPES,
     roundEffects: {
       assassinatedCharacterId: effects.assassinatedCharacterId || null,
-      thiefTargetCharacterId: effects.thiefTargetCharacterId || null
+      thiefTargetCharacterId: effects.thiefTargetCharacterId || null,
+      witchTargetCharacterId: effects.witchTargetCharacterId || null,
+      magistrateTargetCharacterIds: [...effects.magistrateTargetCharacterIds],
+      blackmailTargetCharacterIds: [...effects.blackmailTargetCharacterIds]
     },
     draft: draft ? {
       currentPlayerId: currentDraftPlayerId,
@@ -406,14 +441,11 @@ function setupDistrictDeck(session) {
 function prepareDraft(session) {
   session.players.forEach((p) => { p.characterId = null; });
   session.roundFaceUpCharacterIds = [];
-  session.draft = createDraft(sortedPlayers(session), session.crownPlayerId);
+  session.draft = createDraft(sortedPlayers(session), session.crownPlayerId, session.selectedCharacterIds);
   session.turn = null;
   session.phase = 'draft';
-  session.roundEffects = {
-    assassinatedCharacterId: null,
-    thiefTargetCharacterId: null,
-    thiefPlayerId: null
-  };
+  session.roundEffects = {};
+  ensureRoundEffects(session);
 }
 
 function beginTurns(session) {
@@ -443,30 +475,64 @@ function areAdjacent(session, playerAId, playerBId) {
   return ((a + 1) % players.length === b) || ((b + 1) % players.length === a);
 }
 
-function applyTurnStartEffects(session, current) {
+function applyTurnStartEffects(session, current, options = {}) {
   const actor = getPlayer(session, current.playerId);
   const effects = ensureRoundEffects(session);
+  const witchContinuation = Boolean(options.witchContinuation);
+  const bewitchedVictim = Boolean(options.bewitchedVictim);
 
-  if (effects.thiefTargetCharacterId === current.characterId && effects.thiefPlayerId) {
+  if (!witchContinuation && effects.thiefTargetCharacterId === current.characterId && effects.thiefPlayerId) {
     const thief = getPlayer(session, effects.thiefPlayerId);
     if (thief && thief.id !== actor.id) {
-      thief.gold += actor.gold;
+      thief.gold = Math.min(MAX_GOLD, thief.gold + actor.gold);
       actor.gold = 0;
     }
   }
 
-  if (current.characterId === 'king') {
+  // A megbabonázott Király/Patrícius a szabály szerint a koronát akkor is megkapja.
+  if (!witchContinuation && ['king', 'patrician'].includes(current.characterId)) {
     session.crownPlayerId = current.playerId;
-  } else if (current.characterId === 'merchant') {
+  }
+
+  if (bewitchedVictim) return;
+
+  if (current.characterId === 'merchant') {
     actor.gold = Math.min(MAX_GOLD, actor.gold + 1);
   } else if (current.characterId === 'architect') {
-    actor.hand.push(...drawCards(session, 2));
+    actor.hand.push(...drawCards(session, Math.min(2, session.districtDeck.length)));
   } else if (current.characterId === 'queen') {
-    const kingEntry = session.turn.order.find((entry) => entry.characterId === 'king');
-    if (kingEntry && effects.assassinatedCharacterId !== 'king' && areAdjacent(session, current.playerId, kingEntry.playerId)) {
+    const rankFourEntry = session.turn.order.find((entry) => CHARACTER_MAP.get(entry.characterId)?.rank === 4 && !entry.witchContinuation);
+    if (
+      rankFourEntry &&
+      effects.assassinatedCharacterId !== rankFourEntry.characterId &&
+      areAdjacent(session, current.playerId, rankFourEntry.playerId)
+    ) {
       actor.gold = Math.min(MAX_GOLD, actor.gold + 3);
     }
   }
+}
+
+function finishBewitchedVictim(session) {
+  const action = activeAction(session);
+  const current = activeTurn(session);
+  if (!action?.bewitchedVictim || !current || !action.resourceGathered || action.pendingDraw?.length) return false;
+
+  const effects = ensureRoundEffects(session);
+  const witch = getPlayer(session, effects.witchPlayerId);
+  const borrowedCharacterId = current.characterId;
+
+  session.turn.index += 1;
+  if (witch && effects.assassinatedCharacterId !== borrowedCharacterId) {
+    session.turn.order.splice(session.turn.index, 0, {
+      playerId: witch.id,
+      characterId: borrowedCharacterId,
+      rank: CHARACTER_MAP.get(borrowedCharacterId)?.rank || 99,
+      witchContinuation: true,
+      originalTargetPlayerId: current.playerId
+    });
+  }
+  activateCurrentTurn(session);
+  return true;
 }
 
 function activateCurrentTurn(session) {
@@ -475,7 +541,7 @@ function activateCurrentTurn(session) {
     if (!current) break;
     const effects = ensureRoundEffects(session);
 
-    if (effects.assassinatedCharacterId === current.characterId) {
+    if (!current.witchContinuation && effects.assassinatedCharacterId === current.characterId) {
       if (!session.turn.skippedPlayerIds.includes(current.playerId)) {
         session.turn.skippedPlayerIds.push(current.playerId);
       }
@@ -486,21 +552,63 @@ function activateCurrentTurn(session) {
     if (!session.turn.revealedPlayerIds.includes(current.playerId)) {
       session.turn.revealedPlayerIds.push(current.playerId);
     }
+
+    const isBewitchedVictim = !current.witchContinuation &&
+      effects.witchTargetCharacterId === current.characterId &&
+      effects.witchPlayerId &&
+      effects.witchPlayerId !== current.playerId;
+
     session.turn.action = {
       playerId: current.playerId,
-      resourceGathered: false,
+      resourceGathered: Boolean(current.witchContinuation),
       builds: 0,
       incomeUsed: false,
       specialUsed: false,
       destructionUsed: false,
       districtUses: {},
-      pendingDraw: []
+      pendingDraw: [],
+      specialDraw: [],
+      inspectedHand: [],
+      inspectedPlayerId: null,
+      seerPendingPlayerIds: [],
+      buildGoldSpent: 0,
+      artistUses: 0,
+      blackmailPending: false,
+      witchContinuation: Boolean(current.witchContinuation),
+      bewitchedVictim: Boolean(isBewitchedVictim)
     };
-    applyTurnStartEffects(session, current);
+
+    if (current.witchContinuation) {
+      effects.witchBorrowedCharacterId = current.characterId;
+      applyTurnStartEffects(session, current, { witchContinuation: true });
+    } else if (isBewitchedVictim) {
+      applyTurnStartEffects(session, current, { bewitchedVictim: true });
+    } else {
+      applyTurnStartEffects(session, current);
+    }
     return;
   }
 
   if (session.turn) completeRound(session);
+}
+
+function afterResourceChoice(session) {
+  const current = activeTurn(session);
+  const action = activeAction(session);
+  if (!current || !action || !action.resourceGathered || action.pendingDraw?.length) return;
+
+  if (action.bewitchedVictim) {
+    finishBewitchedVictim(session);
+    return;
+  }
+
+  const effects = ensureRoundEffects(session);
+  if (
+    effects.blackmailTargetCharacterIds.includes(current.characterId) &&
+    !effects.blackmailResolved[current.characterId]
+  ) {
+    action.blackmailPending = true;
+  }
 }
 
 function calculateWinner(session) {
@@ -524,9 +632,30 @@ function finishGame(session) {
 
 function completeRound(session) {
   const effects = ensureRoundEffects(session);
-  if (effects.assassinatedCharacterId === 'king') {
-    const killedKing = session.players.find((p) => p.characterId === 'king');
-    if (killedKing) session.crownPlayerId = killedKing.id;
+  const killedCharacterId = effects.assassinatedCharacterId;
+
+  if (isRankFourCharacter(killedCharacterId)) {
+    const killedRankFour = session.players.find((player) => player.characterId === killedCharacterId);
+    if (killedRankFour) {
+      if (killedCharacterId === 'emperor') {
+        const players = sortedPlayers(session);
+        const index = players.findIndex((player) => player.id === killedRankFour.id);
+        const recipient = players[(index + 1) % players.length];
+        if (recipient && recipient.id !== killedRankFour.id) session.crownPlayerId = recipient.id;
+      } else {
+        session.crownPlayerId = killedRankFour.id;
+      }
+
+      const queen = session.players.find((player) => player.characterId === 'queen');
+      if (
+        queen &&
+        killedCharacterId !== 'queen' &&
+        effects.assassinatedCharacterId !== 'queen' &&
+        areAdjacent(session, queen.id, killedRankFour.id)
+      ) {
+        queen.gold = Math.min(MAX_GOLD, queen.gold + 3);
+      }
+    }
   }
 
   if (session.finalRound) {
@@ -541,11 +670,21 @@ function endCurrentTurn(session) {
   if (!session.turn) throw httpError(409, 'turn_not_active');
   const action = activeAction(session);
   if (!action?.resourceGathered) throw httpError(409, 'resource_required');
-  if (action.pendingDraw?.length) throw httpError(409, 'draw_choice_required');
+  if (action.pendingDraw?.length || action.specialDraw?.length) throw httpError(409, 'draw_choice_required');
+  if (action.seerPendingPlayerIds?.length) throw httpError(409, 'seer_return_required');
+  if (action.blackmailPending) throw httpError(409, 'blackmail_response_required');
 
   const current = activeTurn(session);
   const actor = current ? getPlayer(session, current.playerId) : null;
+  if (current?.characterId === 'emperor' && !action.specialUsed) {
+    throw httpError(409, 'emperor_crown_required');
+  }
+
   if (actor) {
+    if (current.characterId === 'alchemist' && action.buildGoldSpent > 0) {
+      actor.gold = Math.min(MAX_GOLD, actor.gold + action.buildGoldSpent);
+      action.buildGoldSpent = 0;
+    }
     if (hasDistrict(actor, 'park') && actor.hand.length === 0 && session.districtDeck.length >= 2) {
       actor.hand.push(...drawCards(session, 2));
     }
@@ -563,18 +702,72 @@ function hasDistrict(player, districtId) {
   return player.built.some((district) => district.id === districtId);
 }
 
-function characterIncome(actor, characterId) {
-  const typeByCharacter = {
+function characterIncomeType(characterId) {
+  return {
     king: 'noble',
+    emperor: 'noble',
+    patrician: 'noble',
     bishop: 'religious',
+    abbot: 'religious',
+    cardinal: 'religious',
     merchant: 'trade',
-    warlord: 'military'
-  };
-  const type = typeByCharacter[characterId];
+    trader: 'trade',
+    warlord: 'military',
+    diplomat: 'military',
+    marshal: 'military'
+  }[characterId] || null;
+}
+
+function characterIncome(actor, characterId) {
+  const type = characterIncomeType(characterId);
   if (!type) return 0;
   let amount = actor.built.filter((district) => district.type === type).length;
   if (hasDistrict(actor, 'school-of-magic')) amount += 1;
   return amount;
+}
+
+function characterBuildLimit(characterId) {
+  if (characterId === 'navigator') return 0;
+  if (characterId === 'architect') return 3;
+  if (characterId === 'seer' || characterId === 'scholar') return 2;
+  return 1;
+}
+
+function buildConsumesLimit(characterId, card) {
+  if (card.id === 'stables') return false;
+  if (characterId === 'trader' && card.type === 'trade') return false;
+  return true;
+}
+
+function isRankFourCharacter(characterId) {
+  return CHARACTER_MAP.get(characterId)?.rank === 4;
+}
+
+function isRankEightProtected(session, owner) {
+  const effects = ensureRoundEffects(session);
+  if (owner.characterId === 'bishop' && effects.assassinatedCharacterId !== 'bishop') return true;
+  return owner.id === effects.witchPlayerId &&
+    effects.witchBorrowedCharacterId === 'bishop' &&
+    effects.assassinatedCharacterId !== 'bishop';
+}
+
+function taxCollectorActive(session) {
+  if (session.players.length !== 8) return false;
+  return session.selectedCharacterIds?.[8] === 'tax-collector';
+}
+
+function applyBuildTax(session, payer, actingCharacterId = payer?.characterId) {
+  if (!taxCollectorActive(session) || !payer || actingCharacterId === 'tax-collector' || payer.gold <= 0) return 0;
+  payer.gold -= 1;
+  session.taxPool = Number(session.taxPool || 0) + 1;
+  return 1;
+}
+
+function updateCityCompletion(session, player) {
+  if (!session.firstCompletedPlayerId && cityCompletionCount(player) >= 7) {
+    session.firstCompletedPlayerId = player.id;
+    session.finalRound = true;
+  }
 }
 
 function findBuiltDistrict(session, districtCardId) {
@@ -684,32 +877,23 @@ function botCardScore(actor, card) {
 
 function botCharacterScore(session, actor, characterId) {
   const strategy = botStrategyDefinition(actor);
-  const incomeType = {
-    king: 'noble',
-    bishop: 'religious',
-    merchant: 'trade',
-    warlord: 'military'
-  }[characterId];
-
+  const incomeType = characterIncomeType(characterId);
   let score = 0;
+
   if (incomeType) {
     score += botTypeCount(actor, incomeType, 'built') * 9;
     score += botTypeCount(actor, incomeType, 'hand') * 2;
   }
 
-  if (characterId === 'architect') {
-    const affordable = actor.hand.filter((card) =>
-      card.id !== 'secret-vault' && effectiveBuildCost(actor, card) <= actor.gold).length;
-    score += actor.hand.length * 2 + affordable * 6;
-  } else if (characterId === 'magician') {
-    score += Math.max(0, 5 - actor.hand.length) * 5;
-  } else if (characterId === 'thief') {
+  if (['architect', 'scholar', 'seer'].includes(characterId)) score += actor.hand.length * 2;
+  if (['magician', 'wizard'].includes(characterId)) score += Math.max(0, 5 - actor.hand.length) * 5;
+  if (['thief', 'spy', 'blackmailer'].includes(characterId)) {
     score += Math.min(12, Math.max(0, ...session.players
       .filter((player) => player.id !== actor.id)
       .map((player) => Number(player.gold || 0))));
-  } else if (characterId === 'assassin') {
-    score += 6;
-  } else if (characterId === 'warlord') {
+  }
+  if (['assassin', 'witch', 'magistrate'].includes(characterId)) score += 6;
+  if (['warlord', 'marshal', 'diplomat'].includes(characterId)) {
     const vulnerable = session.players
       .filter((player) => player.id !== actor.id && cityCompletionCount(player) < 7)
       .reduce((sum, player) => sum + player.built.length, 0);
@@ -717,8 +901,7 @@ function botCharacterScore(session, actor, characterId) {
   }
 
   const preferredIndex = strategy.preferredCharacters.indexOf(characterId);
-  if (preferredIndex >= 0) score += 100 - preferredIndex * 10;
-
+  if (preferredIndex >= 0) score += 100 - preferredIndex * 8;
   return score;
 }
 
@@ -750,14 +933,14 @@ function addBotAction(session, actor, characterId, messages, phase = 'turn') {
 }
 
 function botGatherResource(session, actor, action, notes) {
+  if (action.resourceGathered) return;
   const strategy = botStrategyDefinition(actor);
   const bestHandCard = [...actor.hand]
     .filter((card) => card.id !== 'secret-vault')
     .sort((a, b) => botCardScore(actor, b) - botCardScore(actor, a))[0];
   const focusMissing = Boolean(strategy.focusType) &&
     !actor.hand.some((card) => card.type === strategy.focusType);
-  const needsGoldForBest = bestHandCard &&
-    effectiveBuildCost(actor, bestHandCard) > actor.gold;
+  const needsGoldForBest = bestHandCard && effectiveBuildCost(actor, bestHandCard) > actor.gold;
   const takeCards = session.districtDeck.length >= 2 &&
     !needsGoldForBest &&
     (actor.hand.length < 3 || (focusMissing && actor.hand.length < 6));
@@ -771,70 +954,254 @@ function botGatherResource(session, actor, action, notes) {
   }
 
   const drawCount = hasDistrict(actor, 'observatory') ? 3 : 2;
-  const safeCount = Math.min(drawCount, session.districtDeck.length);
-  if (safeCount <= 0) {
-    const amount = 2 + (hasDistrict(actor, 'gold-mine') ? 1 : 0);
-    actor.gold = Math.min(MAX_GOLD, actor.gold + amount);
-    action.resourceGathered = true;
-    notes.push(`${amount} aranyat vett fel.`);
-    return;
-  }
-
-  const drawn = drawCards(session, safeCount);
+  const drawn = drawUpTo(session, drawCount);
   action.resourceGathered = true;
   if (hasDistrict(actor, 'library')) {
     actor.hand.push(...drawn);
-    notes.push(`${safeCount} kerületlapot húzott, és a Könyvtár miatt mindet megtartotta.`);
-  } else {
+    notes.push(`${drawn.length} kerületlapot húzott, és a Könyvtár miatt mindet megtartotta.`);
+  } else if (drawn.length) {
     const chosen = [...drawn].sort((a, b) => botCardScore(actor, b) - botCardScore(actor, a))[0];
     actor.hand.push(chosen);
     putOnDeckBottom(session, drawn.filter((card) => card.cardId !== chosen.cardId));
-    notes.push(`${safeCount} kerületlapból 1-et megtartott a stratégiájához.`);
+    notes.push(`${drawn.length} kerületlapból 1-et megtartott a stratégiájához.`);
   }
+}
+
+function resolveBotBlackmail(session, actor, action, notes) {
+  if (!action.blackmailPending) return;
+  const effects = ensureRoundEffects(session);
+  const blackmailer = getPlayer(session, effects.blackmailerPlayerId);
+  const pay = actor.gold >= 4;
+  if (pay) {
+    const amount = Math.floor(actor.gold / 2);
+    actor.gold -= amount;
+    if (blackmailer) blackmailer.gold = Math.min(MAX_GOLD, blackmailer.gold + amount);
+    notes.push(`Zsaroláskor ${amount} aranyat fizetett.`);
+  } else {
+    if (effects.blackmailRealCharacterId === activeTurn(session)?.characterId && blackmailer) {
+      blackmailer.gold = Math.min(MAX_GOLD, blackmailer.gold + actor.gold);
+      actor.gold = 0;
+      notes.push('Kockáztatott a zsarolásnál, és valódi célpont volt.');
+    } else {
+      notes.push('Kockáztatott a zsarolásnál, és megúszta.');
+    }
+  }
+  effects.blackmailResolved[activeTurn(session)?.characterId] = true;
+  action.blackmailPending = false;
 }
 
 function botUseCharacterAbility(session, actor, current, action, notes) {
   const effects = ensureRoundEffects(session);
   const strategy = botStrategyDefinition(actor);
+  const roleId = current.characterId;
 
-  if (current.characterId === 'assassin' && !action.specialUsed) {
-    const targets = [...targetableCharacterIds(session, 'assassin')];
-    let target = null;
-    if (strategy.id === 'military' && targets.includes('bishop')) target = 'bishop';
-    else if (strategy.id === 'religious' && targets.includes('warlord')) target = 'warlord';
-    else target = botPick(targets);
+  if (roleId === 'assassin' && !action.specialUsed) {
+    const targets = [...targetableCharacterIds(session, roleId)];
+    const target = botPick(targets);
     if (target) {
       effects.assassinatedCharacterId = target;
       action.specialUsed = true;
       notes.push(`Orgyilkosként ezt a karaktert jelölte ki: ${CHARACTER_MAP.get(target)?.name || target}.`);
     }
-  } else if (current.characterId === 'thief' && !action.specialUsed) {
-    const targets = [...targetableCharacterIds(session, 'thief')];
-    const target = ['merchant', 'king', 'architect'].find((idValue) => targets.includes(idValue)) || botPick(targets);
+  } else if (roleId === 'witch' && !action.specialUsed) {
+    const targets = [...targetableCharacterIds(session, roleId)];
+    const target = botPick(targets);
+    if (target) {
+      effects.witchTargetCharacterId = target;
+      effects.witchPlayerId = actor.id;
+      action.specialUsed = true;
+      notes.push(`Boszorkányként ezt a karaktert babonázta meg: ${CHARACTER_MAP.get(target)?.name || target}.`);
+      const futureTarget = session.turn.order
+        .slice(session.turn.index + 1)
+        .some((entry) => !entry.witchContinuation && entry.characterId === target);
+      if (futureTarget && effects.assassinatedCharacterId !== target) {
+        session.turn.index += 1;
+        activateCurrentTurn(session);
+      } else {
+        endCurrentTurn(session);
+      }
+      return true;
+    }
+  } else if (roleId === 'magistrate' && !action.specialUsed) {
+    const targets = [...targetableCharacterIds(session, roleId)];
+    if (targets.length >= 3) {
+      const chosen = [];
+      const pool = [...targets];
+      while (chosen.length < 3 && pool.length) {
+        const target = botPick(pool);
+        chosen.push(target);
+        pool.splice(pool.indexOf(target), 1);
+      }
+      effects.magistrateTargetCharacterIds = chosen;
+      effects.magistrateSignedCharacterId = botPick(chosen);
+      effects.magistratePlayerId = actor.id;
+      effects.magistrateUsed = false;
+      action.specialUsed = true;
+      notes.push('Magisztrátusként titokban elhelyezte a három parancsjelzőt.');
+    }
+  } else if (roleId === 'thief' && !action.specialUsed) {
+    const targets = [...targetableCharacterIds(session, roleId)];
+    const target = botPick(targets);
     if (target) {
       effects.thiefTargetCharacterId = target;
       effects.thiefPlayerId = actor.id;
       action.specialUsed = true;
       notes.push(`Tolvajként ezt a karaktert jelölte ki: ${CHARACTER_MAP.get(target)?.name || target}.`);
     }
-  } else if (current.characterId === 'magician' && !action.specialUsed) {
-    const candidates = session.players
+  } else if (roleId === 'spy' && !action.specialUsed) {
+    const candidates = session.players.filter((player) => player.id !== actor.id);
+    let best = null;
+    for (const player of candidates) {
+      for (const type of DISTRICT_TYPES) {
+        const matches = player.hand.filter((card) => card.type === type.id).length;
+        const score = matches * 5 + player.gold;
+        if (!best || score > best.score) best = { player, type: type.id, matches, score };
+      }
+    }
+    if (best) {
+      const stolen = Math.min(best.matches, best.player.gold);
+      best.player.gold -= stolen;
+      actor.gold = Math.min(MAX_GOLD, actor.gold + stolen);
+      actor.hand.push(...drawUpTo(session, best.matches));
+      action.specialUsed = true;
+      notes.push(`Kémként ${best.player.name} kezét vizsgálta, és ${stolen} aranyat szerzett.`);
+    }
+  } else if (roleId === 'blackmailer' && !action.specialUsed) {
+    const targets = [...targetableCharacterIds(session, roleId)];
+    if (targets.length >= 2) {
+      const first = botPick(targets);
+      const remaining = targets.filter((target) => target !== first);
+      const second = botPick(remaining);
+      effects.blackmailTargetCharacterIds = [first, second];
+      effects.blackmailRealCharacterId = botPick([first, second]);
+      effects.blackmailerPlayerId = actor.id;
+      effects.blackmailResolved = {};
+      action.specialUsed = true;
+      notes.push('Zsarolóként titokban elhelyezte a két fenyegetésjelzőt.');
+    }
+  } else if (roleId === 'magician' && !action.specialUsed) {
+    const target = session.players
       .filter((player) => player.id !== actor.id && player.hand.length > actor.hand.length)
-      .sort((a, b) => b.hand.length - a.hand.length);
-    const target = candidates[0];
+      .sort((a, b) => b.hand.length - a.hand.length)[0];
     if (target) {
       [actor.hand, target.hand] = [target.hand, actor.hand];
       action.specialUsed = true;
       notes.push(`Mágusként kézlapot cserélt vele: ${target.name}.`);
     }
+  } else if (roleId === 'wizard' && !action.specialUsed) {
+    const target = session.players
+      .filter((player) => player.id !== actor.id && player.hand.length)
+      .sort((a, b) => b.hand.length - a.hand.length)[0];
+    if (target) {
+      const choice = [...target.hand].sort((a, b) => botCardScore(actor, b) - botCardScore(actor, a))[0];
+      const index = target.hand.findIndex((card) => card.cardId === choice.cardId);
+      const [card] = target.hand.splice(index, 1);
+      actor.hand.push(card);
+      action.specialUsed = true;
+      notes.push(`Varázslóként elvett 1 kerületlapot ${target.name} kezéből.`);
+    }
+  } else if (roleId === 'seer' && !action.specialUsed) {
+    const affected = [];
+    for (const player of session.players) {
+      if (player.id === actor.id || !player.hand.length) continue;
+      const card = takeRandomHandCard(player);
+      if (card) {
+        actor.hand.push(card);
+        affected.push(player);
+      }
+    }
+    for (const player of affected) {
+      const choice = actor.hand
+        .map((card, index) => ({ card, index, score: botCardScore(actor, card) }))
+        .sort((a, b) => a.score - b.score)[0];
+      if (!choice) break;
+      const [card] = actor.hand.splice(choice.index, 1);
+      player.hand.push(card);
+    }
+    action.specialUsed = true;
+    notes.push(`Látnokként ${affected.length} játékossal cserélt véletlen lapot.`);
   }
 
-  if (['king', 'bishop', 'merchant', 'warlord'].includes(current.characterId) && !action.incomeUsed) {
-    const amount = characterIncome(actor, current.characterId);
+  if (['king', 'emperor', 'bishop', 'merchant', 'trader', 'warlord', 'diplomat', 'marshal'].includes(roleId) && !action.incomeUsed) {
+    const amount = characterIncome(actor, roleId);
     actor.gold = Math.min(MAX_GOLD, actor.gold + amount);
     action.incomeUsed = true;
-    if (amount > 0) notes.push(`Karakterbevételként +${amount} aranyat kapott.`);
+    if (amount) notes.push(`Karakterbevételként +${amount} aranyat kapott.`);
+  } else if (['patrician', 'cardinal'].includes(roleId) && !action.incomeUsed) {
+    const amount = characterIncome(actor, roleId);
+    actor.hand.push(...drawUpTo(session, amount));
+    action.incomeUsed = true;
+    if (amount) notes.push(`Karakterbevételként ${amount} kerületlapot húzott.`);
+  } else if (roleId === 'abbot' && !action.incomeUsed) {
+    const amount = characterIncome(actor, roleId);
+    actor.gold = Math.min(MAX_GOLD, actor.gold + amount);
+    action.incomeUsed = true;
+    const richestGold = Math.max(0, ...session.players.filter((player) => player.id !== actor.id).map((player) => player.gold));
+    if (richestGold > actor.gold) {
+      const payer = session.players.find((player) => player.id !== actor.id && player.gold === richestGold);
+      if (payer?.gold) {
+        payer.gold -= 1;
+        actor.gold = Math.min(MAX_GOLD, actor.gold + 1);
+      }
+    }
+    if (amount) notes.push(`Apátként +${amount} aranyat választott.`);
   }
+
+  if (roleId === 'emperor' && !action.specialUsed) {
+    const candidates = session.players.filter((player) => player.id !== actor.id && player.id !== session.crownPlayerId);
+    const target = botPick(candidates);
+    if (target) {
+      session.crownPlayerId = target.id;
+      if (target.gold > 0) {
+        target.gold -= 1;
+        actor.gold = Math.min(MAX_GOLD, actor.gold + 1);
+      } else if (target.hand.length) {
+        const card = takeRandomHandCard(target);
+        if (card) actor.hand.push(card);
+      }
+      action.specialUsed = true;
+      notes.push(`Császárként átadta a koronát: ${target.name}.`);
+    }
+  } else if (roleId === 'navigator' && !action.specialUsed) {
+    if (actor.hand.length < 3) {
+      const cards = drawUpTo(session, 4);
+      actor.hand.push(...cards);
+      notes.push(`Navigátorként ${cards.length} plusz lapot húzott.`);
+    } else {
+      actor.gold = Math.min(MAX_GOLD, actor.gold + 4);
+      notes.push('Navigátorként +4 aranyat kapott.');
+    }
+    action.specialUsed = true;
+  } else if (roleId === 'scholar' && !action.specialUsed) {
+    const drawn = drawUpTo(session, 7);
+    if (drawn.length) {
+      const choice = [...drawn].sort((a, b) => botCardScore(actor, b) - botCardScore(actor, a))[0];
+      actor.hand.push(choice);
+      returnCardsAndShuffle(session, drawn.filter((card) => card.cardId !== choice.cardId));
+    }
+    action.specialUsed = true;
+    notes.push('Tudósként 7 lapból kiválasztotta a számára legjobbat.');
+  } else if (roleId === 'artist' && action.artistUses < 2) {
+    const targets = actor.built
+      .filter((district) => !district.beautified)
+      .sort((a, b) => Number(b.cost || 0) - Number(a.cost || 0));
+    while (action.artistUses < 2 && actor.gold > 0 && targets.length) {
+      const district = targets.shift();
+      actor.gold -= 1;
+      district.beautified = true;
+      action.artistUses += 1;
+      notes.push(`Művészként megszépítette: ${district.name}.`);
+    }
+    if (action.artistUses >= 2 || !targets.length || actor.gold === 0) action.specialUsed = true;
+  } else if (roleId === 'tax-collector' && !action.specialUsed) {
+    const amount = Number(session.taxPool || 0);
+    actor.gold = Math.min(MAX_GOLD, actor.gold + amount);
+    session.taxPool = 0;
+    action.specialUsed = true;
+    if (amount) notes.push(`Adószedőként ${amount} arany adót szedett be.`);
+  }
+
+  return false;
 }
 
 function districtDestructionCost(owner, district) {
@@ -845,42 +1212,58 @@ function districtDestructionCost(owner, district) {
 
 function botUseWarlordDestruction(session, actor, action, notes) {
   if (action.destructionUsed) return;
-  const effects = ensureRoundEffects(session);
   const candidates = [];
-
   for (const owner of session.players) {
-    if (owner.id === actor.id || cityCompletionCount(owner) >= 7) continue;
-    if (owner.characterId === 'bishop' && effects.assassinatedCharacterId !== 'bishop') continue;
-
+    if (owner.id === actor.id || cityCompletionCount(owner) >= 7 || isRankEightProtected(session, owner)) continue;
     owner.built.forEach((district, index) => {
       if (district.id === 'keep') return;
       const cost = districtDestructionCost(owner, district);
       if (cost > actor.gold) return;
-      const threat = owner.built.length * 4;
-      const value = (Number(district.cost || 0) + (district.beautified ? 1 : 0)) * 5;
-      candidates.push({ owner, district, index, cost, score: threat + value });
+      const score = owner.built.length * 4 + districtValue(district) * 5;
+      candidates.push({ owner, district, index, cost, score });
     });
   }
-
   candidates.sort((a, b) => b.score - a.score || a.cost - b.cost);
   const target = candidates[0];
   if (!target) return;
-
   actor.gold -= target.cost;
   const [destroyed] = target.owner.built.splice(target.index, 1);
-  if (destroyed.id === 'museum' && Array.isArray(destroyed.storedCards)) {
-    putOnDeckBottom(session, destroyed.storedCards);
-  }
+  if (destroyed.id === 'museum' && Array.isArray(destroyed.storedCards)) putOnDeckBottom(session, destroyed.storedCards);
   putOnDeckBottom(session, [destroyed]);
   action.destructionUsed = true;
   notes.push(`Hadúrként elpusztította ${target.owner.name} ${destroyed.name} kerületét (${target.cost} arany).`);
 }
 
+function botUseMarshal(session, actor, action, notes) {
+  if (action.specialUsed) return;
+  const candidates = [];
+  for (const owner of session.players) {
+    if (owner.id === actor.id || cityCompletionCount(owner) >= 7 || isRankEightProtected(session, owner)) continue;
+    for (let index = 0; index < owner.built.length; index += 1) {
+      const district = owner.built[index];
+      const cost = districtValue(district);
+      if (cost > 3 || cost > actor.gold || !canBuildDuplicate(actor, district)) continue;
+      candidates.push({ owner, district, index, cost, score: botCardScore(actor, district) });
+    }
+  }
+  candidates.sort((a, b) => b.score - a.score);
+  const target = candidates[0];
+  if (!target) return;
+  actor.gold -= target.cost;
+  target.owner.gold = Math.min(MAX_GOLD, target.owner.gold + target.cost);
+  const [taken] = target.owner.built.splice(target.index, 1);
+  actor.built.push(taken);
+  updateCityCompletion(session, actor);
+  action.specialUsed = true;
+  notes.push(`Marsallként elkobozta ${target.owner.name} ${taken.name} kerületét.`);
+}
+
 function botBuild(session, actor, current, action, notes) {
-  const limit = current.characterId === 'architect' ? 3 : 1;
+  const limit = characterBuildLimit(current.characterId);
+  if (limit <= 0) return;
   let safety = 0;
 
-  while (safety < 5) {
+  while (safety < 8) {
     safety += 1;
     const candidates = actor.hand
       .map((card, index) => ({
@@ -892,8 +1275,9 @@ function botBuild(session, actor, current, action, notes) {
       .filter(({ card, cost }) => {
         if (card.id === 'secret-vault') return false;
         if (card.id === 'monument' && actor.built.length >= 5) return false;
-        if (card.id !== 'stables' && action.builds >= limit) return false;
-        return cost <= actor.gold && canBuildDuplicate(actor, card);
+        if (buildConsumesLimit(current.characterId, card) && action.builds >= limit) return false;
+        if (current.characterId !== 'wizard' && !canBuildDuplicate(actor, card)) return false;
+        return cost <= actor.gold;
       })
       .sort((a, b) => b.score - a.score || b.card.cost - a.card.cost || a.cost - b.cost);
 
@@ -903,33 +1287,30 @@ function botBuild(session, actor, current, action, notes) {
     actor.gold -= choice.cost;
     const [card] = actor.hand.splice(choice.index, 1);
     actor.built.push({ ...card, beautified: false, builtAtRound: session.round });
-    notes.push(`Megépítette: ${card.name} (${choice.cost} arany).`);
-    if (card.id !== 'stables') action.builds += 1;
-
-    if (!session.firstCompletedPlayerId && cityCompletionCount(actor) >= 7) {
-      session.firstCompletedPlayerId = actor.id;
-      session.finalRound = true;
-    }
+    if (buildConsumesLimit(current.characterId, card)) action.builds += 1;
+    const result = finalizeDistrictBuild(
+      session, actor, current.characterId, actor.built[actor.built.length - 1], choice.cost, action
+    );
+    notes.push(result.confiscated
+      ? `Megépítette volna: ${card.name}, de a Magisztrátus elkobozta.`
+      : `Megépítette: ${card.name} (${choice.cost} arany).`);
   }
 }
 
 function botUseMuseum(actor, action, notes) {
   const museum = actor.built.find((district) => district.id === 'museum');
   if (!museum || action.districtUses?.museum) return;
-
-  const candidates = actor.hand
+  const choice = actor.hand
     .map((card, index) => ({ card, index, score: botCardScore(actor, card) }))
     .filter(({ card }) => card.id !== 'secret-vault')
-    .sort((a, b) => a.score - b.score);
-  const choice = candidates[0];
+    .sort((a, b) => a.score - b.score)[0];
   if (!choice) return;
-
   const [stored] = actor.hand.splice(choice.index, 1);
   if (!Array.isArray(museum.storedCards)) museum.storedCards = [];
   museum.storedCards.push(stored);
   action.districtUses = action.districtUses || {};
   action.districtUses.museum = true;
-  notes.push('A Múzeum alá tett 1, a stratégiájához kevésbé fontos kerületlapot (+1 játékvégi pont).');
+  notes.push('A Múzeum alá tett 1, a stratégiájához kevésbé fontos kerületlapot.');
 }
 
 function playBotTurn(session, actor) {
@@ -938,15 +1319,38 @@ function playBotTurn(session, actor) {
   if (!current || !action || current.playerId !== actor.id) return;
 
   const notes = [];
-  if (current.characterId === 'king') notes.push('Királyként megkapta a koronát.');
+  if (action.bewitchedVictim) {
+    botGatherResource(session, actor, action, notes);
+    afterResourceChoice(session);
+    notes.push('Megbabonázott karakterként a nyersanyaggyűjtés után befejezte a saját részét.');
+    addBotAction(session, actor, current.characterId, notes);
+    return;
+  }
+
+  if (current.characterId === 'king' || current.characterId === 'patrician') notes.push('Megkapta a koronát.');
   if (current.characterId === 'merchant') notes.push('Kereskedőként automatikusan +1 aranyat kapott.');
   if (current.characterId === 'architect') notes.push('Építészként automatikusan 2 kerületlapot húzott.');
 
   botGatherResource(session, actor, action, notes);
-  botUseCharacterAbility(session, actor, current, action, notes);
+  afterResourceChoice(session);
+
+  if (activeTurn(session)?.playerId !== actor.id || activeAction(session) !== action) {
+    addBotAction(session, actor, current.characterId, notes);
+    return;
+  }
+
+  resolveBotBlackmail(session, actor, action, notes);
+
+  const advanced = botUseCharacterAbility(session, actor, current, action, notes);
+  if (advanced || activeTurn(session)?.playerId !== actor.id || activeAction(session) !== action) {
+    addBotAction(session, actor, current.characterId, notes);
+    return;
+  }
 
   if (current.characterId === 'warlord' && botStrategyDefinition(actor).id === 'military') {
     botUseWarlordDestruction(session, actor, action, notes);
+  } else if (current.characterId === 'marshal') {
+    botUseMarshal(session, actor, action, notes);
   }
 
   botBuild(session, actor, current, action, notes);
@@ -987,24 +1391,25 @@ function runBots(session) {
 
     break;
   }
-
   if (guard >= 200) throw new Error('bot_guard_exhausted');
 }
 
 function inUseCharacterIds(session) {
-  return new Set(inUseCharacters(session.players.length).map((character) => character.id));
+  return new Set(inUseCharacters(session.players.length, session.selectedCharacterIds).map((character) => character.id));
 }
 
 function targetableCharacterIds(session, actingCharacterId) {
   const ids = inUseCharacterIds(session);
   for (const characterId of session.roundFaceUpCharacterIds || []) ids.delete(characterId);
+  ids.delete(actingCharacterId);
 
-  if (actingCharacterId === 'assassin') {
-    ids.delete('assassin');
-  } else if (actingCharacterId === 'thief') {
-    ids.delete('assassin');
-    ids.delete('thief');
-    ids.delete(ensureRoundEffects(session).assassinatedCharacterId);
+  const effects = ensureRoundEffects(session);
+  if (actingCharacterId === 'thief' || actingCharacterId === 'blackmailer') {
+    for (const characterId of [...ids]) {
+      if (CHARACTER_MAP.get(characterId)?.rank === 1) ids.delete(characterId);
+    }
+    ids.delete(effects.assassinatedCharacterId);
+    ids.delete(effects.witchTargetCharacterId);
   }
   return ids;
 }
@@ -1037,14 +1442,12 @@ api.post('/session', async (req, res, next) => {
       crownPlayerId: playerId,
       players: [host],
       selectedUniqueDistrictIds: [...DEFAULT_UNIQUE_DISTRICT_IDS],
+      selectedCharacterIds: [...DEFAULT_CHARACTER_IDS],
+      taxPool: 0,
       districtDeck: [],
       draft: null,
       turn: null,
-      roundEffects: {
-        assassinatedCharacterId: null,
-        thiefTargetCharacterId: null,
-        thiefPlayerId: null
-      },
+      roundEffects: {},
       roundFaceUpCharacterIds: [],
       botActionLog: [],
       botActionSeq: 0,
@@ -1162,6 +1565,24 @@ api.post('/session/:code/bots/strategy', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+api.post('/session/:code/config/characters', async (req, res, next) => {
+  try {
+    await withLock(req.params.code, async () => {
+      const session = requireSession(await loadSession(req.params.code));
+      const actor = authPlayer(session, req);
+      requireHost(session, actor);
+      if (session.phase !== 'lobby') throw httpError(409, 'lobby_only');
+      try {
+        session.selectedCharacterIds = validateCharacterSelection(req.body.characterIds);
+      } catch (error) {
+        throw httpError(400, error.message);
+      }
+      await saveSession(session);
+    });
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
 api.post('/session/:code/config/unique-districts', async (req, res, next) => {
   try {
     await withLock(req.params.code, async () => {
@@ -1185,6 +1606,12 @@ api.post('/session/:code/start', async (req, res, next) => {
       if (!['lobby', 'finished'].includes(session.phase)) throw httpError(409, 'cannot_start_now');
       if (session.players.length < 4 || session.players.length > 8) throw httpError(400, 'supported_player_count');
       session.selectedUniqueDistrictIds = validateUniqueDistrictSelection(session.selectedUniqueDistrictIds);
+      try {
+        session.selectedCharacterIds = validateCharacterSelection(session.selectedCharacterIds);
+      } catch (error) {
+        throw httpError(400, error.message);
+      }
+      session.taxPool = 0;
 
       session.round = 1;
       session.botActionLog = [];
@@ -1244,6 +1671,8 @@ api.post('/session/:code/turn/resource', async (req, res, next) => {
       } else {
         throw httpError(400, 'invalid_resource_mode');
       }
+      afterResourceChoice(session);
+      runBots(session);
       await saveSession(session);
     });
     res.json({ ok: true });
@@ -1265,11 +1694,83 @@ api.post('/session/:code/turn/resource/keep', async (req, res, next) => {
       actor.hand.push(chosen);
       putOnDeckBottom(session, pending.filter((card) => card.cardId !== cardId));
       action.pendingDraw = [];
+      afterResourceChoice(session);
+      runBots(session);
       await saveSession(session);
     });
     res.json({ ok: true });
   } catch (err) { next(err); }
 });
+
+api.post('/session/:code/turn/blackmail', async (req, res, next) => {
+  try {
+    await withLock(req.params.code, async () => {
+      const session = requireSession(await loadSession(req.params.code));
+      const actor = authPlayer(session, req);
+      const current = requireActiveActor(session, actor);
+      const action = activeAction(session);
+      const effects = ensureRoundEffects(session);
+      if (!action.blackmailPending) throw httpError(409, 'blackmail_not_pending');
+
+      const blackmailer = getPlayer(session, effects.blackmailerPlayerId);
+      const response = String(req.body.response || '');
+      if (response === 'pay') {
+        const amount = Math.floor(actor.gold / 2);
+        actor.gold -= amount;
+        if (blackmailer) blackmailer.gold = Math.min(MAX_GOLD, blackmailer.gold + amount);
+      } else if (response === 'risk') {
+        if (effects.blackmailRealCharacterId === current.characterId && blackmailer) {
+          blackmailer.gold = Math.min(MAX_GOLD, blackmailer.gold + actor.gold);
+          actor.gold = 0;
+        }
+      } else {
+        throw httpError(400, 'invalid_blackmail_response');
+      }
+
+      effects.blackmailResolved[current.characterId] = true;
+      action.blackmailPending = false;
+      await saveSession(session);
+    });
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+function finalizeDistrictBuild(session, builder, currentCharacterId, card, paidCost, action) {
+  const effects = ensureRoundEffects(session);
+  let finalOwner = builder;
+  let confiscated = false;
+
+  if (
+    paidCost > 0 &&
+    effects.magistrateSignedCharacterId === currentCharacterId &&
+    !effects.magistrateUsed
+  ) {
+    const magistrate = getPlayer(session, effects.magistratePlayerId);
+    if (magistrate && magistrate.id !== builder.id && canBuildDuplicate(magistrate, card)) {
+      const builtIndex = builder.built.findIndex((district) => district.cardId === card.cardId);
+      if (builtIndex >= 0) {
+        const [taken] = builder.built.splice(builtIndex, 1);
+        builder.gold = Math.min(MAX_GOLD, builder.gold + paidCost);
+        magistrate.built.push(taken);
+        effects.magistrateUsed = true;
+        finalOwner = magistrate;
+        confiscated = true;
+      }
+    }
+  }
+
+  if (!confiscated && currentCharacterId === 'alchemist' && paidCost > 0) {
+    action.buildGoldSpent = Number(action.buildGoldSpent || 0) + paidCost;
+  }
+
+  applyBuildTax(
+    session,
+    finalOwner,
+    confiscated ? finalOwner.characterId : currentCharacterId
+  );
+  updateCityCompletion(session, finalOwner);
+  return { finalOwner, confiscated };
+}
 
 api.post('/session/:code/turn/build', async (req, res, next) => {
   try {
@@ -1279,18 +1780,25 @@ api.post('/session/:code/turn/build', async (req, res, next) => {
       const current = requireActiveActor(session, actor);
       const action = activeAction(session);
       if (!action.resourceGathered) throw httpError(409, 'resource_required');
-      if (action.pendingDraw?.length) throw httpError(409, 'draw_choice_required');
+      if (action.pendingDraw?.length || action.specialDraw?.length) throw httpError(409, 'draw_choice_required');
+      if (action.seerPendingPlayerIds?.length) throw httpError(409, 'seer_return_required');
+      if (action.blackmailPending) throw httpError(409, 'blackmail_response_required');
 
-      const buildLimit = current.characterId === 'architect' ? 3 : 1;
+      const buildLimit = characterBuildLimit(current.characterId);
+      if (buildLimit === 0) throw httpError(409, 'character_cannot_build');
 
       const cardId = String(req.body.cardId || '');
       const cardIndex = actor.hand.findIndex((card) => card.cardId === cardId);
       if (cardIndex < 0) throw httpError(404, 'district_not_in_hand');
       const card = actor.hand[cardIndex];
-      if (card.id !== 'stables' && action.builds >= buildLimit) throw httpError(409, 'build_limit_reached');
+      if (buildConsumesLimit(current.characterId, card) && action.builds >= buildLimit) {
+        throw httpError(409, 'build_limit_reached');
+      }
       if (card.id === 'secret-vault') throw httpError(409, 'district_cannot_be_built');
       if (card.id === 'monument' && actor.built.length >= 5) throw httpError(409, 'monument_too_late');
-      if (!canBuildDuplicate(actor, card)) throw httpError(409, 'duplicate_district');
+      if (current.characterId !== 'wizard' && !canBuildDuplicate(actor, card)) {
+        throw httpError(409, 'duplicate_district');
+      }
 
       const cost = effectiveBuildCost(actor, card);
       if (actor.gold < cost) throw httpError(409, 'not_enough_gold');
@@ -1298,18 +1806,44 @@ api.post('/session/:code/turn/build', async (req, res, next) => {
       actor.gold -= cost;
       actor.hand.splice(cardIndex, 1);
       actor.built.push({ ...card, beautified: false, builtAtRound: session.round });
-      if (card.id !== 'stables') action.builds += 1;
-
-      if (!session.firstCompletedPlayerId && cityCompletionCount(actor) >= 7) {
-        session.firstCompletedPlayerId = actor.id;
-        session.finalRound = true;
-      }
+      if (buildConsumesLimit(current.characterId, card)) action.builds += 1;
+      finalizeDistrictBuild(session, actor, current.characterId, actor.built[actor.built.length - 1], cost, action);
 
       await saveSession(session);
     });
     res.status(201).json({ ok: true });
   } catch (err) { next(err); }
 });
+
+function drawUpTo(session, count) {
+  const safeCount = Math.min(Math.max(0, Number(count || 0)), session.districtDeck.length);
+  return safeCount ? drawCards(session, safeCount) : [];
+}
+
+function takeRandomHandCard(player) {
+  if (!player?.hand?.length) return null;
+  const index = crypto.randomInt(0, player.hand.length);
+  const [card] = player.hand.splice(index, 1);
+  return card || null;
+}
+
+function returnCardsAndShuffle(session, cards) {
+  session.districtDeck.push(...cards);
+  for (let i = session.districtDeck.length - 1; i > 0; i -= 1) {
+    const j = crypto.randomInt(0, i + 1);
+    [session.districtDeck[i], session.districtDeck[j]] = [session.districtDeck[j], session.districtDeck[i]];
+  }
+}
+
+function districtValue(district) {
+  return Number(district.cost || 0) + (district.beautified ? 1 : 0);
+}
+
+function requireNoPendingTurnChoice(action) {
+  if (action.blackmailPending) throw httpError(409, 'blackmail_response_required');
+  if (action.pendingDraw?.length || action.specialDraw?.length) throw httpError(409, 'draw_choice_required');
+  if (action.seerPendingPlayerIds?.length) throw httpError(409, 'seer_return_required');
+}
 
 api.post('/session/:code/turn/ability', async (req, res, next) => {
   try {
@@ -1320,34 +1854,102 @@ api.post('/session/:code/turn/ability', async (req, res, next) => {
       const action = activeAction(session);
       const effects = ensureRoundEffects(session);
       const abilityAction = String(req.body.action || '');
+      const roleId = current.characterId;
 
-      if (current.characterId === 'assassin') {
+      if (action.bewitchedVictim) throw httpError(409, 'bewitched_action_forbidden');
+      if (!['seer-return', 'scholar-keep'].includes(abilityAction)) requireNoPendingTurnChoice(action);
+
+      if (roleId === 'assassin') {
         if (action.specialUsed) throw httpError(409, 'ability_already_used');
         if (abilityAction !== 'target-character') throw httpError(400, 'invalid_ability_action');
         const target = String(req.body.targetCharacterId || '');
-        if (!targetableCharacterIds(session, 'assassin').has(target)) {
-          throw httpError(400, 'invalid_character_target');
-        }
+        if (!targetableCharacterIds(session, roleId).has(target)) throw httpError(400, 'invalid_character_target');
         effects.assassinatedCharacterId = target;
         action.specialUsed = true;
-      } else if (current.characterId === 'thief') {
+
+      } else if (roleId === 'witch') {
+        if (action.specialUsed) throw httpError(409, 'ability_already_used');
+        if (!action.resourceGathered) throw httpError(409, 'resource_required');
+        if (abilityAction !== 'target-character') throw httpError(400, 'invalid_ability_action');
+        const target = String(req.body.targetCharacterId || '');
+        if (!targetableCharacterIds(session, roleId).has(target)) throw httpError(400, 'invalid_character_target');
+        effects.witchTargetCharacterId = target;
+        effects.witchPlayerId = actor.id;
+        action.specialUsed = true;
+
+        const futureTarget = session.turn.order
+          .slice(session.turn.index + 1)
+          .some((entry) => !entry.witchContinuation && entry.characterId === target);
+        if (futureTarget && effects.assassinatedCharacterId !== target) {
+          session.turn.index += 1;
+          activateCurrentTurn(session);
+        } else {
+          endCurrentTurn(session);
+        }
+
+      } else if (roleId === 'magistrate') {
+        if (action.specialUsed) throw httpError(409, 'ability_already_used');
+        if (abilityAction !== 'set-orders') throw httpError(400, 'invalid_ability_action');
+        const targets = Array.isArray(req.body.targetCharacterIds)
+          ? [...new Set(req.body.targetCharacterIds.map(String))]
+          : [];
+        const signed = String(req.body.signedCharacterId || '');
+        const allowed = targetableCharacterIds(session, roleId);
+        if (targets.length !== 3 || targets.some((idValue) => !allowed.has(idValue)) || !targets.includes(signed)) {
+          throw httpError(400, 'invalid_character_target');
+        }
+        effects.magistrateTargetCharacterIds = targets;
+        effects.magistrateSignedCharacterId = signed;
+        effects.magistratePlayerId = actor.id;
+        effects.magistrateUsed = false;
+        action.specialUsed = true;
+
+      } else if (roleId === 'thief') {
         if (action.specialUsed) throw httpError(409, 'ability_already_used');
         if (abilityAction !== 'target-character') throw httpError(400, 'invalid_ability_action');
         const target = String(req.body.targetCharacterId || '');
-        if (!targetableCharacterIds(session, 'thief').has(target)) {
-          throw httpError(400, 'invalid_character_target');
-        }
+        if (!targetableCharacterIds(session, roleId).has(target)) throw httpError(400, 'invalid_character_target');
         effects.thiefTargetCharacterId = target;
         effects.thiefPlayerId = actor.id;
         action.specialUsed = true;
-      } else if (current.characterId === 'magician') {
+
+      } else if (roleId === 'spy') {
+        if (action.specialUsed) throw httpError(409, 'ability_already_used');
+        if (abilityAction !== 'spy') throw httpError(400, 'invalid_ability_action');
+        const target = getPlayer(session, String(req.body.targetPlayerId || ''));
+        const type = String(req.body.districtType || '');
+        if (!target || target.id === actor.id) throw httpError(400, 'invalid_player_target');
+        if (!DISTRICT_TYPES.some((item) => item.id === type)) throw httpError(400, 'invalid_district_type');
+        const matches = target.hand.filter((card) => card.type === type).length;
+        const stolenGold = Math.min(matches, target.gold);
+        target.gold -= stolenGold;
+        actor.gold = Math.min(MAX_GOLD, actor.gold + stolenGold);
+        actor.hand.push(...drawUpTo(session, matches));
+        action.specialUsed = true;
+
+      } else if (roleId === 'blackmailer') {
+        if (action.specialUsed) throw httpError(409, 'ability_already_used');
+        if (abilityAction !== 'set-threats') throw httpError(400, 'invalid_ability_action');
+        const targets = Array.isArray(req.body.targetCharacterIds)
+          ? [...new Set(req.body.targetCharacterIds.map(String))]
+          : [];
+        const real = String(req.body.realCharacterId || '');
+        const allowed = targetableCharacterIds(session, roleId);
+        if (targets.length !== 2 || targets.some((idValue) => !allowed.has(idValue)) || !targets.includes(real)) {
+          throw httpError(400, 'invalid_character_target');
+        }
+        effects.blackmailTargetCharacterIds = targets;
+        effects.blackmailRealCharacterId = real;
+        effects.blackmailerPlayerId = actor.id;
+        effects.blackmailResolved = {};
+        action.specialUsed = true;
+
+      } else if (roleId === 'magician') {
         if (action.specialUsed) throw httpError(409, 'ability_already_used');
         if (abilityAction === 'swap-hands') {
           const target = getPlayer(session, String(req.body.targetPlayerId || ''));
           if (!target || target.id === actor.id) throw httpError(400, 'invalid_player_target');
-          const hand = actor.hand;
-          actor.hand = target.hand;
-          target.hand = hand;
+          [actor.hand, target.hand] = [target.hand, actor.hand];
           action.specialUsed = true;
         } else if (abilityAction === 'redraw') {
           const cardIds = Array.isArray(req.body.cardIds) ? [...new Set(req.body.cardIds.map(String))] : [];
@@ -1356,42 +1958,271 @@ api.post('/session/:code/turn/ability', async (req, res, next) => {
           if (selected.some((card) => !card)) throw httpError(400, 'district_not_in_hand');
           actor.hand = actor.hand.filter((card) => !cardIds.includes(card.cardId));
           putOnDeckBottom(session, selected);
-          actor.hand.push(...drawCards(session, selected.length));
+          actor.hand.push(...drawUpTo(session, selected.length));
           action.specialUsed = true;
         } else {
           throw httpError(400, 'invalid_ability_action');
         }
-      } else if (['king', 'bishop', 'merchant', 'warlord'].includes(current.characterId) && abilityAction === 'income') {
+
+      } else if (roleId === 'wizard') {
+        if (action.specialUsed) throw httpError(409, 'ability_already_used');
+        if (abilityAction === 'inspect') {
+          const target = getPlayer(session, String(req.body.targetPlayerId || ''));
+          if (!target || target.id === actor.id) throw httpError(400, 'invalid_player_target');
+          action.inspectedPlayerId = target.id;
+          action.inspectedHand = target.hand.map((card) => ({ ...card }));
+        } else if (abilityAction === 'take-card') {
+          const target = getPlayer(session, action.inspectedPlayerId);
+          if (!target || target.id === actor.id) throw httpError(400, 'invalid_player_target');
+          const cardId = String(req.body.cardId || '');
+          const index = target.hand.findIndex((card) => card.cardId === cardId);
+          if (index < 0) throw httpError(404, 'district_not_in_hand');
+          const card = target.hand[index];
+          const mode = String(req.body.mode || 'keep');
+
+          if (mode === 'build') {
+            if (card.id === 'secret-vault') throw httpError(409, 'district_cannot_be_built');
+            if (card.id === 'monument' && actor.built.length >= 5) throw httpError(409, 'monument_too_late');
+            const cost = effectiveBuildCost(actor, card);
+            if (actor.gold < cost) throw httpError(409, 'not_enough_gold');
+
+            target.hand.splice(index, 1);
+            actor.gold -= cost;
+            actor.built.push({ ...card, beautified: false, builtAtRound: session.round });
+            finalizeDistrictBuild(session, actor, roleId, actor.built[actor.built.length - 1], cost, action);
+          } else if (mode === 'keep') {
+            target.hand.splice(index, 1);
+            actor.hand.push(card);
+          } else {
+            throw httpError(400, 'invalid_ability_action');
+          }
+          action.inspectedHand = [];
+          action.inspectedPlayerId = null;
+          action.specialUsed = true;
+        } else {
+          throw httpError(400, 'invalid_ability_action');
+        }
+
+      } else if (roleId === 'seer') {
+        if (abilityAction === 'seer-draw') {
+          if (action.specialUsed) throw httpError(409, 'ability_already_used');
+          const pending = [];
+          for (const player of session.players) {
+            if (player.id === actor.id || !player.hand.length) continue;
+            const card = takeRandomHandCard(player);
+            if (card) {
+              actor.hand.push(card);
+              pending.push(player.id);
+            }
+          }
+          action.seerPendingPlayerIds = pending;
+          action.specialUsed = true;
+        } else if (abilityAction === 'seer-return') {
+          const targetId = String(req.body.targetPlayerId || '');
+          if (!action.seerPendingPlayerIds?.includes(targetId)) throw httpError(400, 'invalid_player_target');
+          const target = getPlayer(session, targetId);
+          const cardId = String(req.body.cardId || '');
+          const index = actor.hand.findIndex((card) => card.cardId === cardId);
+          if (!target || index < 0) throw httpError(404, 'district_not_in_hand');
+          const [card] = actor.hand.splice(index, 1);
+          target.hand.push(card);
+          action.seerPendingPlayerIds = action.seerPendingPlayerIds.filter((idValue) => idValue !== targetId);
+        } else {
+          throw httpError(400, 'invalid_ability_action');
+        }
+
+      } else if (['king', 'emperor', 'bishop', 'merchant', 'trader', 'warlord', 'diplomat', 'marshal'].includes(roleId) && abilityAction === 'income') {
         if (action.incomeUsed) throw httpError(409, 'ability_already_used');
-        const amount = characterIncome(actor, current.characterId);
+        const amount = characterIncome(actor, roleId);
         actor.gold = Math.min(MAX_GOLD, actor.gold + amount);
         action.incomeUsed = true;
-      } else if (current.characterId === 'warlord' && abilityAction === 'destroy-district') {
+
+      } else if (['patrician', 'cardinal'].includes(roleId) && abilityAction === 'income') {
+        if (action.incomeUsed) throw httpError(409, 'ability_already_used');
+        const amount = characterIncome(actor, roleId);
+        actor.hand.push(...drawUpTo(session, amount));
+        action.incomeUsed = true;
+
+      } else if (roleId === 'abbot' && abilityAction === 'abbot-income') {
+        if (action.incomeUsed) throw httpError(409, 'ability_already_used');
+        const amount = characterIncome(actor, roleId);
+        const goldCount = clampInt(req.body.goldCount, 0, amount, 'invalid_resource_count');
+        const cardCount = amount - goldCount;
+        actor.gold = Math.min(MAX_GOLD, actor.gold + goldCount);
+        actor.hand.push(...drawUpTo(session, cardCount));
+        action.incomeUsed = true;
+
+        const richestGold = Math.max(0, ...session.players.filter((player) => player.id !== actor.id).map((player) => player.gold));
+        if (richestGold > actor.gold) {
+          const richest = session.players.filter((player) => player.id !== actor.id && player.gold === richestGold);
+          const requested = getPlayer(session, String(req.body.richestPlayerId || ''));
+          const payer = requested && richest.some((player) => player.id === requested.id) ? requested : richest[0];
+          if (payer?.gold > 0) {
+            payer.gold -= 1;
+            actor.gold = Math.min(MAX_GOLD, actor.gold + 1);
+          }
+        }
+
+      } else if (roleId === 'cardinal' && abilityAction === 'cardinal-build') {
+        if (action.specialUsed) throw httpError(409, 'ability_already_used');
+        if (!action.resourceGathered) throw httpError(409, 'resource_required');
+        const buildLimit = characterBuildLimit(roleId);
+        const cardId = String(req.body.cardId || '');
+        const cardIndex = actor.hand.findIndex((card) => card.cardId === cardId);
+        if (cardIndex < 0) throw httpError(404, 'district_not_in_hand');
+        const card = actor.hand[cardIndex];
+        if (buildConsumesLimit(roleId, card) && action.builds >= buildLimit) throw httpError(409, 'build_limit_reached');
+        if (card.id === 'secret-vault') throw httpError(409, 'district_cannot_be_built');
+        if (card.id === 'monument' && actor.built.length >= 5) throw httpError(409, 'monument_too_late');
+        if (!canBuildDuplicate(actor, card)) throw httpError(409, 'duplicate_district');
+        const cost = effectiveBuildCost(actor, card);
+        const shortage = Math.max(0, cost - actor.gold);
+        if (shortage <= 0) throw httpError(409, 'cardinal_funding_not_needed');
+
+        const target = getPlayer(session, String(req.body.targetPlayerId || ''));
+        if (!target || target.id === actor.id || target.gold < shortage) throw httpError(400, 'invalid_player_target');
+        const paymentIds = Array.isArray(req.body.paymentCardIds)
+          ? [...new Set(req.body.paymentCardIds.map(String))]
+          : [];
+        if (paymentIds.length !== shortage || paymentIds.includes(cardId)) throw httpError(400, 'cards_required');
+        const paymentCards = paymentIds.map((idValue) => actor.hand.find((item) => item.cardId === idValue));
+        if (paymentCards.some((item) => !item)) throw httpError(404, 'district_not_in_hand');
+
+        actor.hand = actor.hand.filter((item) => !paymentIds.includes(item.cardId));
+        target.hand.push(...paymentCards);
+        target.gold -= shortage;
+        actor.gold += shortage;
+
+        const newIndex = actor.hand.findIndex((item) => item.cardId === cardId);
+        const [builtCard] = actor.hand.splice(newIndex, 1);
+        actor.gold -= cost;
+        actor.built.push({ ...builtCard, beautified: false, builtAtRound: session.round });
+        if (buildConsumesLimit(roleId, builtCard)) action.builds += 1;
+        finalizeDistrictBuild(session, actor, roleId, actor.built[actor.built.length - 1], cost, action);
+        action.specialUsed = true;
+
+      } else if (roleId === 'emperor' && abilityAction === 'crown') {
+        if (action.specialUsed) throw httpError(409, 'ability_already_used');
+        const target = getPlayer(session, String(req.body.targetPlayerId || ''));
+        if (!target || target.id === actor.id || target.id === session.crownPlayerId) throw httpError(400, 'invalid_player_target');
+        const payment = String(req.body.payment || 'gold');
+        session.crownPlayerId = target.id;
+        if (payment === 'gold' && target.gold > 0) {
+          target.gold -= 1;
+          actor.gold = Math.min(MAX_GOLD, actor.gold + 1);
+        } else if (payment === 'card' && target.hand.length > 0) {
+          const card = takeRandomHandCard(target);
+          if (card) actor.hand.push(card);
+        } else if (!(target.gold === 0 && target.hand.length === 0)) {
+          throw httpError(409, 'emperor_payment_unavailable');
+        }
+        action.specialUsed = true;
+
+      } else if (roleId === 'navigator' && abilityAction === 'navigator-resource') {
+        if (action.specialUsed) throw httpError(409, 'ability_already_used');
+        const mode = String(req.body.mode || '');
+        if (mode === 'gold') actor.gold = Math.min(MAX_GOLD, actor.gold + 4);
+        else if (mode === 'cards') actor.hand.push(...drawUpTo(session, 4));
+        else throw httpError(400, 'invalid_resource_mode');
+        action.specialUsed = true;
+
+      } else if (roleId === 'scholar') {
+        if (abilityAction === 'scholar-draw') {
+          if (action.specialUsed) throw httpError(409, 'ability_already_used');
+          action.specialDraw = drawUpTo(session, 7);
+          action.specialUsed = true;
+        } else if (abilityAction === 'scholar-keep') {
+          const cardId = String(req.body.cardId || '');
+          const chosen = action.specialDraw?.find((card) => card.cardId === cardId);
+          if (!chosen) throw httpError(400, 'invalid_draw_choice');
+          actor.hand.push(chosen);
+          returnCardsAndShuffle(session, action.specialDraw.filter((card) => card.cardId !== cardId));
+          action.specialDraw = [];
+        } else {
+          throw httpError(400, 'invalid_ability_action');
+        }
+
+      } else if (roleId === 'warlord' && abilityAction === 'destroy-district') {
         if (action.destructionUsed) throw httpError(409, 'ability_already_used');
         const found = findBuiltDistrict(session, String(req.body.cardId || ''));
         if (!found) throw httpError(404, 'district_not_found');
         if (cityCompletionCount(found.owner) >= 7) throw httpError(409, 'completed_city_protected');
-        if (
-          found.owner.characterId === 'bishop' &&
-          effects.assassinatedCharacterId !== 'bishop'
-        ) {
-          throw httpError(409, 'bishop_protected');
-        }
+        if (isRankEightProtected(session, found.owner)) throw httpError(409, 'bishop_protected');
         if (found.district.id === 'keep') throw httpError(409, 'keep_protected');
-
         const destroyCost = districtDestructionCost(found.owner, found.district);
         if (actor.gold < destroyCost) throw httpError(409, 'not_enough_gold');
         actor.gold -= destroyCost;
         const [destroyed] = found.owner.built.splice(found.index, 1);
-        if (destroyed.id === 'museum' && Array.isArray(destroyed.storedCards)) {
-          putOnDeckBottom(session, destroyed.storedCards);
-        }
+        if (destroyed.id === 'museum' && Array.isArray(destroyed.storedCards)) putOnDeckBottom(session, destroyed.storedCards);
         putOnDeckBottom(session, [destroyed]);
         action.destructionUsed = true;
+
+      } else if (roleId === 'diplomat' && abilityAction === 'swap-districts') {
+        if (action.specialUsed) throw httpError(409, 'ability_already_used');
+        const ownFound = findBuiltDistrict(session, String(req.body.ownCardId || ''));
+        const targetFound = findBuiltDistrict(session, String(req.body.targetCardId || ''));
+        if (!ownFound || ownFound.owner.id !== actor.id || !targetFound || targetFound.owner.id === actor.id) {
+          throw httpError(400, 'invalid_district_target');
+        }
+        if (cityCompletionCount(targetFound.owner) >= 7) throw httpError(409, 'completed_city_protected');
+        if (isRankEightProtected(session, targetFound.owner)) throw httpError(409, 'bishop_protected');
+
+        const actorOther = actor.built.filter((district) => district.cardId !== ownFound.district.cardId);
+        const targetOther = targetFound.owner.built.filter((district) => district.cardId !== targetFound.district.cardId);
+        const actorProbe = { ...actor, built: actorOther };
+        const targetProbe = { ...targetFound.owner, built: targetOther };
+        if (!canBuildDuplicate(actorProbe, targetFound.district) || !canBuildDuplicate(targetProbe, ownFound.district)) {
+          throw httpError(409, 'duplicate_district');
+        }
+
+        const difference = Math.max(0, districtValue(targetFound.district) - districtValue(ownFound.district));
+        if (actor.gold < difference) throw httpError(409, 'not_enough_gold');
+        actor.gold -= difference;
+
+        actor.built[ownFound.index] = targetFound.district;
+        targetFound.owner.built[targetFound.index] = ownFound.district;
+        action.specialUsed = true;
+
+      } else if (roleId === 'marshal' && abilityAction === 'seize-district') {
+        if (action.specialUsed) throw httpError(409, 'ability_already_used');
+        const found = findBuiltDistrict(session, String(req.body.cardId || ''));
+        if (!found || found.owner.id === actor.id) throw httpError(400, 'invalid_district_target');
+        if (cityCompletionCount(found.owner) >= 7) throw httpError(409, 'completed_city_protected');
+        if (isRankEightProtected(session, found.owner)) throw httpError(409, 'bishop_protected');
+        const cost = districtValue(found.district);
+        if (cost > 3) throw httpError(409, 'marshal_cost_limit');
+        if (!canBuildDuplicate(actor, found.district)) throw httpError(409, 'duplicate_district');
+        if (actor.gold < cost) throw httpError(409, 'not_enough_gold');
+
+        actor.gold -= cost;
+        found.owner.gold = Math.min(MAX_GOLD, found.owner.gold + cost);
+        const [taken] = found.owner.built.splice(found.index, 1);
+        actor.built.push(taken);
+        updateCityCompletion(session, actor);
+        action.specialUsed = true;
+
+      } else if (roleId === 'artist' && abilityAction === 'beautify') {
+        if (action.artistUses >= 2) throw httpError(409, 'ability_already_used');
+        const found = findBuiltDistrict(session, String(req.body.cardId || ''));
+        if (!found || found.owner.id !== actor.id) throw httpError(400, 'invalid_district_target');
+        if (found.district.beautified) throw httpError(409, 'district_already_beautified');
+        if (actor.gold < 1) throw httpError(409, 'not_enough_gold');
+        actor.gold -= 1;
+        found.district.beautified = true;
+        action.artistUses += 1;
+        if (action.artistUses >= 2) action.specialUsed = true;
+
+      } else if (roleId === 'tax-collector' && abilityAction === 'collect-tax') {
+        if (action.specialUsed) throw httpError(409, 'ability_already_used');
+        actor.gold = Math.min(MAX_GOLD, actor.gold + Number(session.taxPool || 0));
+        session.taxPool = 0;
+        action.specialUsed = true;
+
       } else {
         throw httpError(400, 'invalid_ability_action');
       }
 
+      runBots(session);
       await saveSession(session);
     });
     res.json({ ok: true });
@@ -1592,6 +2423,8 @@ module.exports = {
   BOT_STRATEGIES,
   botChooseCharacter,
   botCardScore,
+  characterBuildLimit,
+  applyBuildTax,
   districtDestructionCost,
   runBots
 };

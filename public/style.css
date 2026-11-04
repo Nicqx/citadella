@@ -323,3 +323,32 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   .bot-strategy-control { max-width: none; }
   .unique-shortcuts button { flex: 1 1 100%; }
 }
+
+
+/* Character variant configuration */
+.character-config-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 8px;
+}
+.character-config-row {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #111925;
+}
+.character-config-row > span { display: flex; gap: 8px; align-items: baseline; justify-content: space-between; }
+.character-config-row select { width: 100%; min-height: 42px; }
+
+@media (max-width: 720px) {
+  .character-config-grid { grid-template-columns: 1fr; }
+}
+
+.compact-check-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 6px;
+  padding: 8px 0;
+}
