@@ -12,6 +12,8 @@ const {
   BOT_STRATEGIES,
   botChooseCharacter,
   botCardScore,
+  characterBuildLimit,
+  applyBuildTax,
   districtDestructionCost
 } = require('../server');
 const { DEFAULT_UNIQUE_DISTRICT_IDS } = require('../districts');
@@ -290,4 +292,65 @@ test('legacy session without character selection falls back to official base cha
 
   const view = stateView(session, actor, 1234);
   assert.deepEqual(view.selectedCharacterIds, DEFAULT_CHARACTER_IDS);
+});
+
+
+test('alternative character build limits follow the official variants', () => {
+  assert.equal(characterBuildLimit('architect'), 3);
+  assert.equal(characterBuildLimit('seer'), 2);
+  assert.equal(characterBuildLimit('scholar'), 2);
+  assert.equal(characterBuildLimit('navigator'), 0);
+  assert.equal(characterBuildLimit('trader'), 1);
+});
+
+test('Thief targeting excludes whichever rank-one replacement is in the game', () => {
+  const players = [
+    makePlayer('p0', 'A', 0),
+    makePlayer('p1', 'B', 1),
+    makePlayer('p2', 'C', 2),
+    makePlayer('p3', 'D', 3)
+  ];
+  const session = makeSession(players);
+  session.selectedCharacterIds = [
+    'witch', 'thief', 'seer', 'emperor', 'abbot',
+    'trader', 'scholar', 'marshal', 'artist'
+  ];
+
+  const targets = targetableCharacterIds(session, 'thief');
+  assert.equal(targets.has('witch'), false);
+  assert.equal(targets.has('emperor'), true);
+});
+
+test('Tax Collector setup charges builders and exempts the Tax Collector character', () => {
+  const players = Array.from({ length: 8 }, (_, index) => makePlayer(`p${index}`, `P${index}`, index));
+  const session = makeSession(players);
+  session.selectedCharacterIds = [
+    'assassin', 'thief', 'magician', 'king', 'bishop',
+    'merchant', 'architect', 'warlord', 'tax-collector'
+  ];
+  session.taxPool = 0;
+
+  const builder = players[0];
+  builder.gold = 2;
+  assert.equal(applyBuildTax(session, builder, 'architect'), 1);
+  assert.equal(builder.gold, 1);
+  assert.equal(session.taxPool, 1);
+
+  const collector = players[1];
+  collector.gold = 2;
+  assert.equal(applyBuildTax(session, collector, 'tax-collector'), 0);
+  assert.equal(collector.gold, 2);
+  assert.equal(session.taxPool, 1);
+});
+
+test('military strategy recognizes an alternative rank-eight character', () => {
+  const actor = { ...makePlayer('bot_1', 'Bot 1', 0), isBot: true, botStrategy: 'military' };
+  actor.built = [{ id: 'watchtower', type: 'military', cost: 1 }];
+  const session = makeSession([actor, makePlayer('p1', 'B', 1)]);
+  session.selectedCharacterIds = [
+    'witch', 'spy', 'wizard', 'emperor', 'abbot',
+    'trader', 'scholar', 'marshal', 'artist'
+  ];
+
+  assert.equal(botChooseCharacter(session, actor, ['scholar', 'marshal']), 'marshal');
 });
