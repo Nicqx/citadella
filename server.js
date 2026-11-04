@@ -32,6 +32,56 @@ const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
 const SESSION_TTL_SECONDS = Math.max(900, Number(process.env.SESSION_TTL_SECONDS || 21600));
 const MAX_GOLD = 999;
 
+const BOT_STRATEGIES = Object.freeze({
+  adaptive: Object.freeze({
+    id: 'adaptive',
+    label: 'Alkalmazkodó',
+    description: 'Az aktuális kézhez, városhoz és lehetőségekhez igazodik.',
+    focusType: null,
+    preferredCharacters: []
+  }),
+  noble: Object.freeze({
+    id: 'noble',
+    label: 'Nemesi fókusz',
+    description: 'A nemesi kerületeket és a Királyt részesíti előnyben.',
+    focusType: 'noble',
+    preferredCharacters: ['king']
+  }),
+  religious: Object.freeze({
+    id: 'religious',
+    label: 'Egyházi fókusz',
+    description: 'Az egyházi kerületeket és a Püspököt részesíti előnyben.',
+    focusType: 'religious',
+    preferredCharacters: ['bishop']
+  }),
+  trade: Object.freeze({
+    id: 'trade',
+    label: 'Kereskedelmi fókusz',
+    description: 'A kereskedelmi kerületeket és a Kereskedőt részesíti előnyben.',
+    focusType: 'trade',
+    preferredCharacters: ['merchant']
+  }),
+  military: Object.freeze({
+    id: 'military',
+    label: 'Katonai fókusz',
+    description: 'A katonai kerületeket és a Hadurat keresi, és agresszívan rombol.',
+    focusType: 'military',
+    preferredCharacters: ['warlord']
+  }),
+  unique: Object.freeze({
+    id: 'unique',
+    label: 'Egyedi kerület fókusz',
+    description: 'Az egyedi kerületeket és az ezekhez jól illő építkező karaktereket keresi.',
+    focusType: 'unique',
+    preferredCharacters: ['architect', 'magician']
+  })
+});
+
+function normalizeBotStrategy(value) {
+  const idValue = String(value || 'adaptive');
+  return BOT_STRATEGIES[idValue] ? idValue : 'adaptive';
+}
+
 const app = express();
 const api = express.Router();
 const redis = createClient({ url: REDIS_URL });
@@ -112,6 +162,7 @@ function ensurePlayerFields(player) {
   if (!Array.isArray(player.hand)) player.hand = [];
   if (!Number.isInteger(player.gold)) player.gold = Number(player.gold || 0);
   player.isBot = Boolean(player.isBot);
+  player.botStrategy = player.isBot ? normalizeBotStrategy(player.botStrategy) : null;
   return player;
 }
 
@@ -216,11 +267,6 @@ function requireActiveActor(session, actor) {
   return current;
 }
 
-function canAdminPublicState(session, actor) {
-  const turn = activeTurn(session);
-  return actor.id === session.hostPlayerId || (turn && turn.playerId === actor.id);
-}
-
 function characterPublic(idValue) {
   const character = CHARACTER_MAP.get(idValue);
   if (!character) return null;
@@ -250,7 +296,8 @@ function playerView(session, player, actor) {
     hasCharacter: Boolean(player.characterId),
     isCrowned: player.id === session.crownPlayerId,
     isHost: player.id === session.hostPlayerId,
-    isBot: Boolean(player.isBot)
+    isBot: Boolean(player.isBot),
+    botStrategy: player.isBot ? normalizeBotStrategy(player.botStrategy) : null
   };
 }
 
@@ -310,11 +357,11 @@ function stateView(session, actor, ttlSeconds) {
     })),
     botCount: session.players.filter((player) => player.isBot).length,
     humanCount: session.players.filter((player) => !player.isBot).length,
+    botStrategies: Object.values(BOT_STRATEGIES).map(({ id, label, description }) => ({ id, label, description })),
     botActions: session.botActionLog.slice(-8),
     faceUpCharacters: (draft ? draft.faceUpIds : session.roundFaceUpCharacterIds).map(characterPublic).filter(Boolean),
     me: playerView(session, actor, actor),
     isHost: actor.id === session.hostPlayerId,
-    canAdminPublicState: canAdminPublicState(session, actor),
     players: sortedPlayers(session).map((p) => playerView(session, p, actor)),
     characters,
     districtTypes: DISTRICT_TYPES,
@@ -573,7 +620,8 @@ function setBotCount(session, requestedCount) {
       gold: 0,
       built: [],
       hand: [],
-      characterId: null
+      characterId: null,
+      botStrategy: 'adaptive'
     });
   }
 
@@ -582,9 +630,105 @@ function setBotCount(session, requestedCount) {
   if (!getPlayer(session, session.crownPlayerId)) session.crownPlayerId = session.hostPlayerId;
 }
 
+function setBotStrategy(session, playerId, strategyId) {
+  const player = getPlayer(session, String(playerId || ''));
+  if (!player || !player.isBot) throw httpError(404, 'bot_not_found');
+  const requested = String(strategyId || '');
+  if (!BOT_STRATEGIES[requested]) throw httpError(400, 'invalid_bot_strategy');
+  player.botStrategy = requested;
+  return player.botStrategy;
+}
+
 function botPick(array) {
   if (!array.length) return null;
   return array[crypto.randomInt(0, array.length)];
+}
+
+function botStrategyDefinition(actor) {
+  return BOT_STRATEGIES[normalizeBotStrategy(actor.botStrategy)] || BOT_STRATEGIES.adaptive;
+}
+
+function botTypeCount(actor, type, source = 'built') {
+  const cards = Array.isArray(actor[source]) ? actor[source] : [];
+  return cards.filter((card) => card.type === type).length;
+}
+
+function botCardScore(actor, card) {
+  const strategy = botStrategyDefinition(actor);
+  let score = Number(card.cost || 0) * 3;
+
+  if (strategy.focusType && card.type === strategy.focusType) score += 35;
+  if (!actor.built.some((district) => district.type === card.type)) score += 8;
+
+  if (strategy.id === 'adaptive') {
+    const momentum = botTypeCount(actor, card.type, 'built') + botTypeCount(actor, card.type, 'hand');
+    score += momentum * 3;
+  }
+
+  const endGameValue = {
+    'dragon-gate': 10,
+    'imperial-treasury': 8,
+    'map-room': 7,
+    statue: 8,
+    basilica: 7,
+    capitol: 8,
+    'ivory-tower': 8,
+    'wishing-well': 8,
+    'secret-vault': 12,
+    monument: 7,
+    museum: 6
+  };
+  score += endGameValue[card.id] || 0;
+  return score;
+}
+
+function botCharacterScore(session, actor, characterId) {
+  const strategy = botStrategyDefinition(actor);
+  const incomeType = {
+    king: 'noble',
+    bishop: 'religious',
+    merchant: 'trade',
+    warlord: 'military'
+  }[characterId];
+
+  let score = 0;
+  if (incomeType) {
+    score += botTypeCount(actor, incomeType, 'built') * 9;
+    score += botTypeCount(actor, incomeType, 'hand') * 2;
+  }
+
+  if (characterId === 'architect') {
+    const affordable = actor.hand.filter((card) =>
+      card.id !== 'secret-vault' && effectiveBuildCost(actor, card) <= actor.gold).length;
+    score += actor.hand.length * 2 + affordable * 6;
+  } else if (characterId === 'magician') {
+    score += Math.max(0, 5 - actor.hand.length) * 5;
+  } else if (characterId === 'thief') {
+    score += Math.min(12, Math.max(0, ...session.players
+      .filter((player) => player.id !== actor.id)
+      .map((player) => Number(player.gold || 0))));
+  } else if (characterId === 'assassin') {
+    score += 6;
+  } else if (characterId === 'warlord') {
+    const vulnerable = session.players
+      .filter((player) => player.id !== actor.id && cityCompletionCount(player) < 7)
+      .reduce((sum, player) => sum + player.built.length, 0);
+    score += Math.min(18, vulnerable * 2);
+  }
+
+  const preferredIndex = strategy.preferredCharacters.indexOf(characterId);
+  if (preferredIndex >= 0) score += 100 - preferredIndex * 10;
+
+  return score;
+}
+
+function botChooseCharacter(session, actor, options) {
+  const ranked = options.map((characterId) => ({
+    characterId,
+    score: botCharacterScore(session, actor, characterId)
+  }));
+  const bestScore = ranked.length ? Math.max(...ranked.map((item) => item.score)) : -Infinity;
+  return botPick(ranked.filter((item) => item.score === bestScore).map((item) => item.characterId));
 }
 
 function addBotAction(session, actor, characterId, messages, phase = 'turn') {
@@ -606,7 +750,18 @@ function addBotAction(session, actor, characterId, messages, phase = 'turn') {
 }
 
 function botGatherResource(session, actor, action, notes) {
-  const takeCards = actor.hand.length < 4 && session.districtDeck.length >= 2;
+  const strategy = botStrategyDefinition(actor);
+  const bestHandCard = [...actor.hand]
+    .filter((card) => card.id !== 'secret-vault')
+    .sort((a, b) => botCardScore(actor, b) - botCardScore(actor, a))[0];
+  const focusMissing = Boolean(strategy.focusType) &&
+    !actor.hand.some((card) => card.type === strategy.focusType);
+  const needsGoldForBest = bestHandCard &&
+    effectiveBuildCost(actor, bestHandCard) > actor.gold;
+  const takeCards = session.districtDeck.length >= 2 &&
+    !needsGoldForBest &&
+    (actor.hand.length < 3 || (focusMissing && actor.hand.length < 6));
+
   if (!takeCards) {
     const amount = 2 + (hasDistrict(actor, 'gold-mine') ? 1 : 0);
     actor.gold = Math.min(MAX_GOLD, actor.gold + amount);
@@ -631,25 +786,31 @@ function botGatherResource(session, actor, action, notes) {
     actor.hand.push(...drawn);
     notes.push(`${safeCount} kerületlapot húzott, és a Könyvtár miatt mindet megtartotta.`);
   } else {
-    const chosen = [...drawn].sort((a, b) => b.cost - a.cost)[0];
+    const chosen = [...drawn].sort((a, b) => botCardScore(actor, b) - botCardScore(actor, a))[0];
     actor.hand.push(chosen);
     putOnDeckBottom(session, drawn.filter((card) => card.cardId !== chosen.cardId));
-    notes.push(`${safeCount} kerületlapból 1-et megtartott.`);
+    notes.push(`${safeCount} kerületlapból 1-et megtartott a stratégiájához.`);
   }
 }
 
 function botUseCharacterAbility(session, actor, current, action, notes) {
   const effects = ensureRoundEffects(session);
+  const strategy = botStrategyDefinition(actor);
 
   if (current.characterId === 'assassin' && !action.specialUsed) {
-    const target = botPick([...targetableCharacterIds(session, 'assassin')]);
+    const targets = [...targetableCharacterIds(session, 'assassin')];
+    let target = null;
+    if (strategy.id === 'military' && targets.includes('bishop')) target = 'bishop';
+    else if (strategy.id === 'religious' && targets.includes('warlord')) target = 'warlord';
+    else target = botPick(targets);
     if (target) {
       effects.assassinatedCharacterId = target;
       action.specialUsed = true;
       notes.push(`Orgyilkosként ezt a karaktert jelölte ki: ${CHARACTER_MAP.get(target)?.name || target}.`);
     }
   } else if (current.characterId === 'thief' && !action.specialUsed) {
-    const target = botPick([...targetableCharacterIds(session, 'thief')]);
+    const targets = [...targetableCharacterIds(session, 'thief')];
+    const target = ['merchant', 'king', 'architect'].find((idValue) => targets.includes(idValue)) || botPick(targets);
     if (target) {
       effects.thiefTargetCharacterId = target;
       effects.thiefPlayerId = actor.id;
@@ -676,6 +837,45 @@ function botUseCharacterAbility(session, actor, current, action, notes) {
   }
 }
 
+function districtDestructionCost(owner, district) {
+  const greatWallExtra = hasDistrict(owner, 'great-wall') && district.id !== 'great-wall' ? 1 : 0;
+  const beautifiedExtra = district.beautified ? 1 : 0;
+  return Math.max(0, Number(district.cost || 0) - 1 + greatWallExtra + beautifiedExtra);
+}
+
+function botUseWarlordDestruction(session, actor, action, notes) {
+  if (action.destructionUsed) return;
+  const effects = ensureRoundEffects(session);
+  const candidates = [];
+
+  for (const owner of session.players) {
+    if (owner.id === actor.id || cityCompletionCount(owner) >= 7) continue;
+    if (owner.characterId === 'bishop' && effects.assassinatedCharacterId !== 'bishop') continue;
+
+    owner.built.forEach((district, index) => {
+      if (district.id === 'keep') return;
+      const cost = districtDestructionCost(owner, district);
+      if (cost > actor.gold) return;
+      const threat = owner.built.length * 4;
+      const value = (Number(district.cost || 0) + (district.beautified ? 1 : 0)) * 5;
+      candidates.push({ owner, district, index, cost, score: threat + value });
+    });
+  }
+
+  candidates.sort((a, b) => b.score - a.score || a.cost - b.cost);
+  const target = candidates[0];
+  if (!target) return;
+
+  actor.gold -= target.cost;
+  const [destroyed] = target.owner.built.splice(target.index, 1);
+  if (destroyed.id === 'museum' && Array.isArray(destroyed.storedCards)) {
+    putOnDeckBottom(session, destroyed.storedCards);
+  }
+  putOnDeckBottom(session, [destroyed]);
+  action.destructionUsed = true;
+  notes.push(`Hadúrként elpusztította ${target.owner.name} ${destroyed.name} kerületét (${target.cost} arany).`);
+}
+
 function botBuild(session, actor, current, action, notes) {
   const limit = current.characterId === 'architect' ? 3 : 1;
   let safety = 0;
@@ -683,14 +883,19 @@ function botBuild(session, actor, current, action, notes) {
   while (safety < 5) {
     safety += 1;
     const candidates = actor.hand
-      .map((card, index) => ({ card, index, cost: effectiveBuildCost(actor, card) }))
+      .map((card, index) => ({
+        card,
+        index,
+        cost: effectiveBuildCost(actor, card),
+        score: botCardScore(actor, card)
+      }))
       .filter(({ card, cost }) => {
         if (card.id === 'secret-vault') return false;
         if (card.id === 'monument' && actor.built.length >= 5) return false;
         if (card.id !== 'stables' && action.builds >= limit) return false;
         return cost <= actor.gold && canBuildDuplicate(actor, card);
       })
-      .sort((a, b) => b.card.cost - a.card.cost || a.cost - b.cost);
+      .sort((a, b) => b.score - a.score || b.card.cost - a.card.cost || a.cost - b.cost);
 
     const choice = candidates[0];
     if (!choice) break;
@@ -713,9 +918,9 @@ function botUseMuseum(actor, action, notes) {
   if (!museum || action.districtUses?.museum) return;
 
   const candidates = actor.hand
-    .map((card, index) => ({ card, index }))
+    .map((card, index) => ({ card, index, score: botCardScore(actor, card) }))
     .filter(({ card }) => card.id !== 'secret-vault')
-    .sort((a, b) => Number(a.card.cost || 0) - Number(b.card.cost || 0));
+    .sort((a, b) => a.score - b.score);
   const choice = candidates[0];
   if (!choice) return;
 
@@ -724,7 +929,7 @@ function botUseMuseum(actor, action, notes) {
   museum.storedCards.push(stored);
   action.districtUses = action.districtUses || {};
   action.districtUses.museum = true;
-  notes.push('A Múzeum alá tett 1 kerületlapot (+1 játékvégi pont).');
+  notes.push('A Múzeum alá tett 1, a stratégiájához kevésbé fontos kerületlapot (+1 játékvégi pont).');
 }
 
 function playBotTurn(session, actor) {
@@ -739,7 +944,17 @@ function playBotTurn(session, actor) {
 
   botGatherResource(session, actor, action, notes);
   botUseCharacterAbility(session, actor, current, action, notes);
+
+  if (current.characterId === 'warlord' && botStrategyDefinition(actor).id === 'military') {
+    botUseWarlordDestruction(session, actor, action, notes);
+  }
+
   botBuild(session, actor, current, action, notes);
+
+  if (current.characterId === 'warlord' && !action.destructionUsed) {
+    botUseWarlordDestruction(session, actor, action, notes);
+  }
+
   botUseMuseum(actor, action, notes);
   addBotAction(session, actor, current.characterId, notes);
   endCurrentTurn(session);
@@ -754,10 +969,10 @@ function runBots(session) {
       const playerId = session.draft.order[session.draft.index];
       const player = getPlayer(session, playerId);
       if (!player?.isBot) break;
-      const choice = botPick(draftOptions(session.draft));
+      const choice = botChooseCharacter(session, player, draftOptions(session.draft));
       if (!choice) break;
       const completed = chooseCharacter(session.draft, player.id, choice);
-      addBotAction(session, player, null, ['Titokban karaktert választott.'], 'draft');
+      addBotAction(session, player, null, ['Titokban, a beállított stratégiája alapján karaktert választott.'], 'draft');
       if (completed) beginTurns(session);
       continue;
     }
@@ -933,6 +1148,20 @@ api.post('/session/:code/bots', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+api.post('/session/:code/bots/strategy', async (req, res, next) => {
+  try {
+    await withLock(req.params.code, async () => {
+      const session = requireSession(await loadSession(req.params.code));
+      const actor = authPlayer(session, req);
+      requireHost(session, actor);
+      if (session.phase !== 'lobby') throw httpError(409, 'lobby_only');
+      setBotStrategy(session, req.body.playerId, req.body.strategy);
+      await saveSession(session);
+    });
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
 api.post('/session/:code/config/unique-districts', async (req, res, next) => {
   try {
     await withLock(req.params.code, async () => {
@@ -955,6 +1184,7 @@ api.post('/session/:code/start', async (req, res, next) => {
       requireHost(session, actor);
       if (!['lobby', 'finished'].includes(session.phase)) throw httpError(409, 'cannot_start_now');
       if (session.players.length < 4 || session.players.length > 8) throw httpError(400, 'supported_player_count');
+      session.selectedUniqueDistrictIds = validateUniqueDistrictSelection(session.selectedUniqueDistrictIds);
 
       session.round = 1;
       session.botActionLog = [];
@@ -1149,8 +1379,7 @@ api.post('/session/:code/turn/ability', async (req, res, next) => {
         }
         if (found.district.id === 'keep') throw httpError(409, 'keep_protected');
 
-        const greatWallExtra = hasDistrict(found.owner, 'great-wall') && found.district.id !== 'great-wall' ? 1 : 0;
-        const destroyCost = Math.max(0, Number(found.district.cost || 0) - 1 + greatWallExtra);
+        const destroyCost = districtDestructionCost(found.owner, found.district);
         if (actor.gold < destroyCost) throw httpError(409, 'not_enough_gold');
         actor.gold -= destroyCost;
         const [destroyed] = found.owner.built.splice(found.index, 1);
@@ -1219,26 +1448,6 @@ api.post('/session/:code/turn/district-ability', async (req, res, next) => {
         throw httpError(400, 'invalid_district_ability');
       }
 
-      await saveSession(session);
-    });
-    res.json({ ok: true });
-  } catch (err) { next(err); }
-});
-
-api.post('/session/:code/gold', async (req, res, next) => {
-  try {
-    await withLock(req.params.code, async () => {
-      const session = requireSession(await loadSession(req.params.code));
-      const actor = authPlayer(session, req);
-      if (!['turns', 'finished'].includes(session.phase)) throw httpError(409, 'game_not_active');
-      const targetId = String(req.body.playerId || actor.id);
-      const target = getPlayer(session, targetId);
-      if (!target) throw httpError(404, 'player_not_found');
-      if (target.id !== actor.id && !canAdminPublicState(session, actor)) throw httpError(403, 'not_allowed');
-      const delta = clampInt(req.body.delta, -50, 50, 'invalid_gold_delta');
-      const nextGold = target.gold + delta;
-      if (nextGold < 0 || nextGold > MAX_GOLD) throw httpError(409, 'invalid_gold_total');
-      target.gold = nextGold;
       await saveSession(session);
     });
     res.json({ ok: true });
@@ -1379,5 +1588,10 @@ module.exports = {
   cityCompletionCount,
   validateUniqueDistrictSelection,
   setBotCount,
+  setBotStrategy,
+  BOT_STRATEGIES,
+  botChooseCharacter,
+  botCardScore,
+  districtDestructionCost,
   runBots
 };

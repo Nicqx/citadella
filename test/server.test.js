@@ -7,7 +7,12 @@ const {
   targetableCharacterIds,
   cityCompletionCount,
   validateUniqueDistrictSelection,
-  setBotCount
+  setBotCount,
+  setBotStrategy,
+  BOT_STRATEGIES,
+  botChooseCharacter,
+  botCardScore,
+  districtDestructionCost
 } = require('../server');
 const { DEFAULT_UNIQUE_DISTRICT_IDS } = require('../districts');
 
@@ -198,4 +203,65 @@ test('finished state no longer exposes a manual score correction', () => {
   const view = stateView(session, actor, 1234);
   assert.equal(Object.hasOwn(view.me, 'manualBonus'), false);
   assert.equal(Object.hasOwn(view.scores[0], 'manualBonus'), false);
+});
+
+
+test('bots default to adaptive strategy and host can assign a strategy per bot', () => {
+  const humans = [makePlayer('p0', 'A', 0)];
+  const session = makeSession(humans);
+
+  setBotCount(session, 2);
+  const bots = session.players.filter((player) => player.isBot);
+  assert.deepEqual(bots.map((player) => player.botStrategy), ['adaptive', 'adaptive']);
+
+  setBotStrategy(session, bots[0].id, 'military');
+  setBotStrategy(session, bots[1].id, 'religious');
+  assert.equal(bots[0].botStrategy, 'military');
+  assert.equal(bots[1].botStrategy, 'religious');
+  assert.throws(() => setBotStrategy(session, bots[0].id, 'cheat-mode'), /invalid_bot_strategy/);
+});
+
+test('stateView exposes bot strategy catalog and each bot selected strategy', () => {
+  const actor = makePlayer('p0', 'A', 0);
+  const session = makeSession([actor]);
+  setBotCount(session, 1);
+  const bot = session.players.find((player) => player.isBot);
+  setBotStrategy(session, bot.id, 'trade');
+
+  const view = stateView(session, actor, 1234);
+  const botView = view.players.find((player) => player.id === bot.id);
+
+  assert.equal(botView.botStrategy, 'trade');
+  assert.equal(view.botStrategies.length, Object.keys(BOT_STRATEGIES).length);
+  assert.ok(view.botStrategies.some((strategy) => strategy.id === 'adaptive'));
+  assert.ok(view.botStrategies.some((strategy) => strategy.id === 'military'));
+});
+
+test('focused bot character selection prefers the matching income character', () => {
+  const actor = { ...makePlayer('bot_1', 'Bot 1', 0), isBot: true, botStrategy: 'military' };
+  actor.built = [{ id: 'watchtower', type: 'military', cost: 1 }];
+  const other = makePlayer('p1', 'B', 1);
+  other.built = [{ id: 'market', type: 'trade', cost: 2 }];
+  const session = makeSession([actor, other]);
+
+  const choice = botChooseCharacter(session, actor, ['merchant', 'bishop', 'warlord']);
+  assert.equal(choice, 'warlord');
+});
+
+test('focused bot card evaluation prefers its configured district type', () => {
+  const bot = { ...makePlayer('bot_1', 'Bot 1', 0), isBot: true, botStrategy: 'religious' };
+  const religious = { id: 'church', type: 'religious', cost: 3 };
+  const trade = { id: 'docks', type: 'trade', cost: 3 };
+
+  assert.ok(botCardScore(bot, religious) > botCardScore(bot, trade));
+});
+
+test('district destruction cost includes Great Wall and beautification', () => {
+  const owner = makePlayer('p0', 'A', 0);
+  owner.built = [
+    { id: 'great-wall', type: 'unique', cost: 6 },
+    { id: 'castle', type: 'noble', cost: 4, beautified: true }
+  ];
+
+  assert.equal(districtDestructionCost(owner, owner.built[1]), 5);
 });
