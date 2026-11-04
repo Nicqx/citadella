@@ -2423,6 +2423,8 @@ module.exports = {
   BOT_STRATEGIES,
   botChooseCharacter,
   botCardScore,
+  characterBuildLimit,
+  applyBuildTax,
   districtDestructionCost,
   runBots
 };
