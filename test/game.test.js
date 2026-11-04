@@ -215,3 +215,17 @@ test('custom rank replacements are used by the draft and rank four is still prot
     assert.equal(draft.faceUpIds.includes('emperor'), false);
   }
 });
+
+
+test('Emperor is never the initial face-down discard', () => {
+  const custom = [
+    'magistrate', 'blackmailer', 'wizard', 'emperor', 'cardinal',
+    'alchemist', 'navigator', 'diplomat', 'tax-collector'
+  ];
+
+  for (let i = 0; i < 200; i += 1) {
+    const draft = createDraft(players(6), 'p0', custom);
+    assert.notEqual(draft.faceDownId, 'emperor');
+    assert.ok(draft.available.includes('emperor'));
+  }
+});
