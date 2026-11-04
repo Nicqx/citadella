@@ -399,7 +399,10 @@ function stateView(session, actor, ttlSeconds) {
     districtTypes: DISTRICT_TYPES,
     roundEffects: {
       assassinatedCharacterId: effects.assassinatedCharacterId || null,
-      thiefTargetCharacterId: effects.thiefTargetCharacterId || null
+      thiefTargetCharacterId: effects.thiefTargetCharacterId || null,
+      witchTargetCharacterId: effects.witchTargetCharacterId || null,
+      magistrateTargetCharacterIds: [...effects.magistrateTargetCharacterIds],
+      blackmailTargetCharacterIds: [...effects.blackmailTargetCharacterIds]
     },
     draft: draft ? {
       currentPlayerId: currentDraftPlayerId,
