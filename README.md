@@ -6,7 +6,7 @@ Mobilbarát, Redis-alapú Citadella játékszoba. Az alkalmazás kezeli a titkos
 
 - 4–8 résztvevő; a valós játékosok mellé a lobbyban szimulált játékosok adhatók.
 - Minden játékos 2 arannyal és 4 titkos kerületlappal indul.
-- A kerületpakli mindig 54 alap + 14 egyedi kerületből áll. Az egyedi kerületek a teljes, 30 lapos készletből választhatók ki indulás előtt; alapból az első játék 14 lapos készlete van kijelölve.
+- A kerületpakli mindig 54 alap + pontosan 14 egyedi kerületből áll, a játékosszámtól függetlenül. Az egyedi kerületek a teljes, 30 lapos készletből választhatók ki indulás előtt; a lobbyban van alapkészlet-, mind-kijelölés- és kijelöléstörlés gyorsgomb, de menteni és játékot indítani csak pontosan 14 kijelölt lappal lehet.
 - A saját kéz csak a saját telefonon látható; más játékosok csak a kézlapok számát látják.
 - A kör elején az aktív játékos 2 aranyat választ, vagy 2 kerületlapból 1-et tart meg.
 - Építeni közvetlenül a saját kézben látható lapra kattintva lehet; az app levonja az aranyat és az asztalra teszi a kerületet.
@@ -36,8 +36,10 @@ Az egyedi kerületek egyre nagyobb része automatizált. Többek közt a Gyár, 
 ## Szimulált játékosok
 
 - A házigazda a lobbyban 0–7 szimulált játékost állíthat be, úgy hogy a teljes létszám legfeljebb 8 legyen.
-- A botok titokban karaktert választanak, nyersanyagot gyűjtenek, egyszerű karakterképességeket használnak és szabályosan építkeznek.
-- A botstratégia szándékosan egyszerű: játékképes ellenfelet/pótlást ad, nem tökéletes mesterséges intelligenciát.
+- A botok titokban karaktert választanak, nyersanyagot gyűjtenek, karakterképességeket használnak és szabályosan építkeznek.
+- Minden bothoz külön stratégia választható: alkalmazkodó, nemesi, egyházi, kereskedelmi, katonai vagy egyedi-kerület fókusz. A stratégia hat a karakterdraft-ra, a lapmegtartásra, az építési sorrendre és a Hadúr rombolására.
+- A katonai fókuszú bot agresszívan keresi a Hadurat és a rombolható ellenfél-kerületeket; az alkalmazkodó bot a saját aktuális kezére és városára reagál.
+- A botstratégia továbbra is könnyű, játékképes ellenfelet/pótlást céloz, nem tökéletes mesterséges intelligenciát.
 
 ## Indítás fejlesztői gépen
 
