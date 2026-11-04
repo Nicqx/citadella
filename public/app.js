@@ -55,6 +55,8 @@ const errors = {
   too_many_players: 'A valós és szimulált játékosok együtt legfeljebb nyolcan lehetnek.',
   unique_district_selection_count: 'Pontosan 14 egyedi kerületet válassz.',
   unknown_unique_district: 'Ismeretlen egyedi kerület került a választásba.',
+  character_selection_count: 'Minden ranghoz pontosan egy karaktert válassz.',
+  invalid_character_selection: 'Egy ranghoz nem megfelelő karakter lett kiválasztva.',
   district_cannot_be_built: 'Ezt a kerületet nem lehet megépíteni.',
   monument_too_late: 'Az Emlékmű már nem építhető, ha legalább öt kerületed van.',
   internal_error: 'Szerverhiba történt.'
@@ -219,6 +221,26 @@ function setUniqueSelection(ids) {
   syncUniqueSelectionUi();
 }
 
+function characterSelector() {
+  const selected = state.selectedCharacterIds || [];
+  const catalog = state.characterCatalog || [];
+  const rows = Array.from({ length: 9 }, (_, offset) => {
+    const rank = offset + 1;
+    const options = catalog
+      .filter((character) => character.rank === rank)
+      .map((character) => `<option value="${character.id}" ${selected[offset] === character.id ? 'selected' : ''}>${escapeHtml(character.name)}</option>`)
+      .join('');
+    const activeNote = rank === 9 ? '<span class="muted small-text">8 játékosnál kerül játékba</span>' : '';
+    return `<label class="character-config-row"><span><strong>${rank}. rang</strong>${activeNote}</span><select name="characterId" data-rank="${rank}">${options}</select></label>`;
+  }).join('');
+  return `<form id="character-config-form" class="stack"><div class="section-head"><div><p class="eyebrow">Karakterpakli</p><h3>Karakterek helyettesítése</h3></div><span class="badge">27 → 8/9</span></div><p class="muted">Minden ranghoz egy karakter tartozik. 4–7 játékosnál az 1–8. rang, 8 játékosnál az 1–9. rang kerül a pakliba.</p><div class="character-config-grid">${rows}</div><div class="actions"><button type="submit">Karakterkészlet mentése</button><button type="button" class="secondary" data-action="default-characters">Alapkarakterek</button></div></form>`;
+}
+
+function currentCharacterSelectionIds() {
+  const form = document.getElementById('character-config-form');
+  return form ? [...form.querySelectorAll('select[name="characterId"]')].map((select) => select.value) : [];
+}
+
 function uniqueDistrictSelector() {
   const selected = new Set(state.selectedUniqueDistrictIds || []);
   const catalog = state.uniqueDistrictCatalog || [];
@@ -227,7 +249,7 @@ function uniqueDistrictSelector() {
       <input type="checkbox" name="districtId" value="${district.id}" ${selected.has(district.id) ? 'checked' : ''}>
       <span><strong>${escapeHtml(district.name)}</strong><small>${district.cost} 🪙 · ${escapeHtml(district.effect)}</small></span>
     </label>`).join('');
-  return `<form id="district-config-form" class="stack"><div class="section-head"><div><p class="eyebrow">Kiegészítő kerületek</p><h3>Egyedi kerületek</h3></div><span id="unique-count" class="badge good">${selected.size}/14</span></div><p class="muted">A hivatalos szabály szerint a játékosszámtól függetlenül pontosan 14 különböző egyedi kerület kerül az 54 alapkerület mellé.</p><div class="actions unique-shortcuts"><button type="button" class="secondary" data-action="default-unique">Csak alapkészlet (14)</button><button type="button" class="secondary" data-action="select-all-unique">Mind kijelöl</button><button type="button" class="ghost" data-action="clear-unique">Kijelölés törlése</button></div><div id="unique-selection-notice" class="selection-notice good-text">✓ Pontosan 14 egyedi kerület van kijelölve.</div><div class="unique-config-grid">${cards}</div><div class="actions"><button id="save-unique-button" type="submit">14-es készlet mentése</button></div></form>`;
+  return `<form id="district-config-form" class="stack"><div class="section-head"><div><p class="eyebrow">Kiegészítő kerületek</p><h3>Egyedi kerületek</h3></div><span id="unique-count" class="badge good">${selected.size}/14</span></div><p class="muted">A hivatalos szabály szerint a játékosszámtól függetlenül pontosan 14 különböző egyedi kerület kerül az 54 alapkerület mellé.</p><div class="actions unique-shortcuts"><button type="button" class="secondary" data-action="default-unique">Csak alapkészlet (14)</button><button type="button" class="secondary" data-action="random-unique">🎲 Véletlen 14</button><button type="button" class="ghost" data-action="clear-unique">Kijelölés törlése</button></div><div id="unique-selection-notice" class="selection-notice good-text">✓ Pontosan 14 egyedi kerület van kijelölve.</div><div class="unique-config-grid">${cards}</div><div class="actions"><button id="save-unique-button" type="submit">14-es készlet mentése</button></div></form>`;
 }
 
 function renderLobby() {
@@ -242,8 +264,8 @@ function renderLobby() {
     .map((district) => `<span class="badge">${escapeHtml(district.name)}</span>`).join('');
 
   const hostSettings = state.isHost
-    ? `<section class="panel stack lobby-settings"><h2>Játékbeállítások</h2><form id="bot-form" class="inline-form"><label>Szimulált játékosok<select name="count">${botOptions}</select></label><button type="submit">Botok beállítása</button></form><p class="muted">Minden botnak külön stratégia választható a játékoslistában. Az alkalmazkodó bot az aktuális kézre és városra reagál; a fókuszált botok a saját kerülettípusukat és hozzá illő karaktert keresik.</p>${uniqueDistrictSelector()}</section>`
-    : `<section class="panel stack lobby-settings"><h2>Játékbeállítások</h2><p><strong>Szimulált játékosok:</strong> ${state.botCount}</p><div><p class="eyebrow">A kiválasztott 14 egyedi kerület</p><div class="face-up">${selectedNames}</div></div><p class="muted">Ezeket a házigazda módosíthatja indulás előtt.</p></section>`;
+    ? `<section class="panel stack lobby-settings"><h2>Játékbeállítások</h2><form id="bot-form" class="inline-form"><label>Szimulált játékosok<select name="count">${botOptions}</select></label><button type="submit">Botok beállítása</button></form><p class="muted">Minden botnak külön stratégia választható a játékoslistában. Az alkalmazkodó bot az aktuális kézre és városra reagál; a fókuszált botok a saját kerülettípusukat és hozzá illő karaktert keresik.</p>${characterSelector()}${uniqueDistrictSelector()}</section>`
+    : `<section class="panel stack lobby-settings"><h2>Játékbeállítások</h2><p><strong>Szimulált játékosok:</strong> ${state.botCount}</p><div><p class="eyebrow">Karakterkészlet</p><div class="face-up">${(state.selectedCharacterIds || []).map((idValue) => state.characterCatalog.find((character) => character.id === idValue)).filter(Boolean).map((character) => `<span class="badge">${character.rank}. ${escapeHtml(character.name)}</span>`).join('')}</div></div><div><p class="eyebrow">A kiválasztott 14 egyedi kerület</p><div class="face-up">${selectedNames}</div></div><p class="muted">Ezeket a házigazda módosíthatja indulás előtt.</p></section>`;
 
   const startDisabled = !(countOk && uniqueOk);
   const startNotice = !countOk
@@ -530,7 +552,8 @@ function render() {
 
 function renderHelp() {
   if (!state?.characters) return;
-  const characters = state.characters.map((role) => `<article class="help-item"><strong><span class="rank">${role.rank}</span>${escapeHtml(role.name)}</strong><p>${escapeHtml(role.detail)}</p></article>`).join('');
+  const selectedCharacters = new Set(state.selectedCharacterIds || []);
+  const characters = (state.characterCatalog || []).map((role) => `<article class="help-item ${selectedCharacters.has(role.id) ? 'selected-help' : ''}"><strong><span class="rank">${role.rank}</span>${escapeHtml(role.name)} ${selectedCharacters.has(role.id) ? '<span class="badge good">kiválasztva</span>' : ''}</strong><p>${escapeHtml(role.detail)}</p></article>`).join('');
   const selected = new Set(state.selectedUniqueDistrictIds || []);
   const districts = (state.uniqueDistrictCatalog || []).map((district) => `<article class="help-item ${selected.has(district.id) ? 'selected-help' : ''}"><strong>${escapeHtml(district.name)} · ${district.cost} 🪙 ${selected.has(district.id) ? '<span class="badge good">ebben a játékban</span>' : ''}</strong><p>${escapeHtml(district.effect)}</p></article>`).join('');
 
@@ -552,7 +575,7 @@ function renderHelp() {
     <details class="rules-section">
       <summary>🎭 Karakterválasztási fázis</summary>
       <div class="rules-body">
-        <p>A karakterpakliból a játékosszámtól függően bizonyos lapok nyíltan, egy lap pedig titkosan félrekerül. A 4-es rangú karakter nem kerülhet nyíltan félretett lapként az asztalra. A nyíltan félretett karakterek az egész körben láthatók.</p>
+        <p>A játék előtt rangonként egy karakter választható a három lehetséges változat közül. 4–7 játékosnál az 1–8. rangú karakterek, 8 játékosnál a 9. rangú karakter is bekerül. A kiválasztott karakterpakliból a játékosszámtól függően bizonyos lapok nyíltan, egy lap pedig titkosan félrekerül. A 4-es rangú karakter nem kerülhet nyíltan félretett lapként az asztalra.</p>
         <p>A koronás játékos választ először titokban, majd az ülésrend szerint következnek a többiek. Hét- és nyolcfős játékban az utolsó választó a megmaradt nyílt lehetőség és a kezdeti titkos félretett lap közül választhat.</p>
       </div>
     </details>
@@ -576,8 +599,8 @@ function renderHelp() {
       </div>
     </details>
     <details class="rules-section">
-      <summary>👑 Karakterek</summary>
-      <div class="rules-body"><div class="help-card-grid">${characters}</div></div>
+      <summary>👑 Karakterek · mind a 27 változat</summary>
+      <div class="rules-body"><p class="muted">Minden ranghoz három karakterváltozat tartozik; a zöld jelölés mutatja az ebben a szobában kiválasztott készletet.</p><div class="help-card-grid">${characters}</div></div>
     </details>
     <details class="rules-section">
       <summary>🤖 Szimulált játékosok</summary>
@@ -669,6 +692,12 @@ app.addEventListener('submit', async (event) => {
     else if (form.id === 'bot-form') {
       const data = new FormData(form);
       await post(`/session/${state.code}/bots`, { count: Number(data.get('count')) });
+    } else if (form.id === 'character-config-form') {
+      const characterIds = currentCharacterSelectionIds();
+      if (characterIds.length !== 9) {
+        throw Object.assign(new Error('character_selection_count'), { code: 'character_selection_count' });
+      }
+      await post(`/session/${state.code}/config/characters`, { characterIds });
     } else if (form.id === 'district-config-form') {
       const data = new FormData(form);
       const districtIds = data.getAll('districtId').map(String);
@@ -699,13 +728,35 @@ app.addEventListener('click', async (event) => {
     } else if (action === 'finish-game') {
       if (!confirm('Biztosan befejezed a játékot? Mindenki a végeredmény képernyőre kerül.')) return;
       await post(`/session/${state.code}/finish`);
+    } else if (action === 'default-characters') {
+      const form = document.getElementById('character-config-form');
+      if (form) {
+        [...form.querySelectorAll('select[name="characterId"]')].forEach((select, index) => {
+          select.value = state.defaultCharacterIds[index];
+        });
+      }
     } else if (action === 'default-unique') {
       setUniqueSelection(state.defaultUniqueDistrictIds);
-    } else if (action === 'select-all-unique') {
-      setUniqueSelection((state.uniqueDistrictCatalog || []).map((district) => district.id));
+    } else if (action === 'random-unique') {
+      const ids = (state.uniqueDistrictCatalog || []).map((district) => district.id);
+      for (let i = ids.length - 1; i > 0; i -= 1) {
+        const random = crypto.getRandomValues(new Uint32Array(1))[0] / 4294967296;
+        const j = Math.floor(random * (i + 1));
+        [ids[i], ids[j]] = [ids[j], ids[i]];
+      }
+      setUniqueSelection(ids.slice(0, 14));
     } else if (action === 'clear-unique') {
       setUniqueSelection([]);
     } else if (action === 'start') {
+      const characterForm = document.getElementById('character-config-form');
+      if (characterForm) {
+        const characterIds = currentCharacterSelectionIds();
+        const savedCharacters = [...(state.selectedCharacterIds || [])].join('|');
+        const currentCharacters = characterIds.join('|');
+        if (savedCharacters !== currentCharacters) {
+          await post(`/session/${state.code}/config/characters`, { characterIds });
+        }
+      }
       const form = document.getElementById('district-config-form');
       if (form) {
         const districtIds = currentUniqueSelectionIds();
