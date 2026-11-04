@@ -687,7 +687,16 @@ function renderTurns() {
   helpButton.classList.remove('hidden');
   const active = state.players.find((player) => player.id === state.turn.activePlayerId);
   const selfActive = state.turn.activePlayerId === state.me.id;
-  const canEnd = selfActive && state.turn.action.resourceGathered && !state.turn.action.pendingDraw?.length;
+  const turnAction = state.turn.action;
+  const emperorPending = selfActive && state.turn.character.id === 'emperor' && !turnAction.specialUsed;
+  const canEnd = selfActive &&
+    turnAction.resourceGathered &&
+    !turnAction.pendingDraw?.length &&
+    !turnAction.specialDraw?.length &&
+    !turnAction.seerPendingPlayerIds?.length &&
+    !turnAction.blackmailPending &&
+    !turnAction.bewitchedVictim &&
+    !emperorPending;
 
   app.innerHTML = `${renderTopbar()}${roleCard()}${botActionsPanel()}${faceUpCharactersPanel()}${announcementsPanel()}<section class="panel status-banner"><div><p class="eyebrow">${state.finalRound ? 'Utolsó kör · ' : ''}${state.turn.index + 1}/${state.turn.total}</p><h2>${escapeHtml(active?.name || '—')} · ${state.turn.character.rank}. ${escapeHtml(state.turn.character.name)}</h2><p class="muted">${escapeHtml(state.turn.character.short)}</p></div>${selfActive ? `<button data-action="end-turn" ${canEnd ? '' : 'disabled'}>Kör vége</button>` : ''}</section>${resourcePanel()}${abilityPanel()}${districtAbilityPanel()}${handPanel({ build: true })}<div class="table-grid">${state.players.map(playerCard).join('')}</div>`;
 }
@@ -961,6 +970,30 @@ app.addEventListener('click', async (event) => {
         action: 'target-character',
         targetCharacterId: button.dataset.character
       });
+    } else if (action === 'blackmail-pay' || action === 'blackmail-risk') {
+      await post(`/session/${state.code}/turn/blackmail`, {
+        response: action === 'blackmail-pay' ? 'pay' : 'risk'
+      });
+    } else if (action === 'magistrate-orders') {
+      const targetCharacterIds = [...document.querySelectorAll('.magistrate-target')].map((select) => select.value);
+      await post(`/session/${state.code}/turn/ability`, {
+        action: 'set-orders',
+        targetCharacterIds,
+        signedCharacterId: document.getElementById('magistrate-signed')?.value
+      });
+    } else if (action === 'spy-use') {
+      await post(`/session/${state.code}/turn/ability`, {
+        action: 'spy',
+        targetPlayerId: document.getElementById('spy-player')?.value,
+        districtType: document.getElementById('spy-type')?.value
+      });
+    } else if (action === 'blackmailer-set') {
+      const targetCharacterIds = [...document.querySelectorAll('.blackmail-target')].map((select) => select.value);
+      await post(`/session/${state.code}/turn/ability`, {
+        action: 'set-threats',
+        targetCharacterIds,
+        realCharacterId: document.getElementById('blackmail-real')?.value
+      });
     } else if (action === 'magician-swap') {
       await post(`/session/${state.code}/turn/ability`, {
         action: 'swap-hands',
@@ -969,12 +1002,80 @@ app.addEventListener('click', async (event) => {
     } else if (action === 'magician-redraw') {
       const cardIds = [...document.querySelectorAll('input[name="magician-card"]:checked')]
         .map((input) => input.value);
+      await post(`/session/${state.code}/turn/ability`, { action: 'redraw', cardIds });
+    } else if (action === 'wizard-inspect') {
       await post(`/session/${state.code}/turn/ability`, {
-        action: 'redraw',
-        cardIds
+        action: 'inspect',
+        targetPlayerId: button.dataset.player
+      });
+    } else if (action === 'wizard-take') {
+      await post(`/session/${state.code}/turn/ability`, {
+        action: 'take-card',
+        cardId: button.dataset.card,
+        mode: button.dataset.mode
+      });
+    } else if (action === 'seer-draw') {
+      await post(`/session/${state.code}/turn/ability`, { action: 'seer-draw' });
+    } else if (action === 'seer-return') {
+      await post(`/session/${state.code}/turn/ability`, {
+        action: 'seer-return',
+        targetPlayerId: button.dataset.player,
+        cardId: document.getElementById('seer-return-card')?.value
       });
     } else if (action === 'ability-income') {
       await post(`/session/${state.code}/turn/ability`, { action: 'income' });
+    } else if (action === 'abbot-income') {
+      await post(`/session/${state.code}/turn/ability`, {
+        action: 'abbot-income',
+        goldCount: Number(document.getElementById('abbot-gold-count')?.value || 0)
+      });
+    } else if (action === 'emperor-crown') {
+      await post(`/session/${state.code}/turn/ability`, {
+        action: 'crown',
+        targetPlayerId: document.getElementById('emperor-player')?.value,
+        payment: document.getElementById('emperor-payment')?.value
+      });
+    } else if (action === 'cardinal-build') {
+      const cardId = document.getElementById('cardinal-build-card')?.value;
+      const paymentCardIds = [...document.querySelectorAll('input[name="cardinal-payment"]:checked')]
+        .map((input) => input.value)
+        .filter((idValue) => idValue !== cardId);
+      await post(`/session/${state.code}/turn/ability`, {
+        action: 'cardinal-build',
+        cardId,
+        targetPlayerId: document.getElementById('cardinal-player')?.value,
+        paymentCardIds
+      });
+    } else if (action === 'navigator-resource') {
+      await post(`/session/${state.code}/turn/ability`, {
+        action: 'navigator-resource',
+        mode: button.dataset.mode
+      });
+    } else if (action === 'scholar-draw') {
+      await post(`/session/${state.code}/turn/ability`, { action: 'scholar-draw' });
+    } else if (action === 'scholar-keep') {
+      await post(`/session/${state.code}/turn/ability`, {
+        action: 'scholar-keep',
+        cardId: button.dataset.card
+      });
+    } else if (action === 'diplomat-swap') {
+      await post(`/session/${state.code}/turn/ability`, {
+        action: 'swap-districts',
+        ownCardId: document.getElementById('diplomat-own')?.value,
+        targetCardId: document.getElementById('diplomat-target')?.value
+      });
+    } else if (action === 'marshal-seize') {
+      await post(`/session/${state.code}/turn/ability`, {
+        action: 'seize-district',
+        cardId: button.dataset.card
+      });
+    } else if (action === 'artist-beautify') {
+      await post(`/session/${state.code}/turn/ability`, {
+        action: 'beautify',
+        cardId: button.dataset.card
+      });
+    } else if (action === 'collect-tax') {
+      await post(`/session/${state.code}/turn/ability`, { action: 'collect-tax' });
     } else if (action === 'use-laboratory') {
       const select = document.getElementById('laboratory-card');
       if (!select?.value) throw new Error('cards_required');
