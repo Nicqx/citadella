@@ -345,3 +345,10 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 @media (max-width: 720px) {
   .character-config-grid { grid-template-columns: 1fr; }
 }
+
+.compact-check-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 6px;
+  padding: 8px 0;
+}
