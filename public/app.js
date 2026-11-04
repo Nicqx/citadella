@@ -27,6 +27,7 @@ const errors = {
   not_current_drafter: 'Most nem te választasz karaktert.',
   character_unavailable: 'Ez a karakter már nem választható.',
   bot_not_found: 'Ez a szimulált játékos nem található.',
+  invalid_bot_strategy: 'Ismeretlen botstratégia.',
   game_not_active: 'A játék még nem fut.',
   turn_not_active: 'Nincs aktív kör.',
   resource_required: 'Előbb válassz: 2 arany vagy kerületlap-húzás.',
