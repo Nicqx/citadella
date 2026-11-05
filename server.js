@@ -972,7 +972,7 @@ function botCharacterScore(session, actor, characterId) {
   if (['assassin', 'witch', 'magistrate'].includes(characterId)) score += 6;
   if (['warlord', 'marshal', 'diplomat'].includes(characterId)) {
     const vulnerable = session.players
-      .filter((player) => player.id !== actor.id && cityCompletionCount(player) < 7)
+      .filter((player) => player.id !== actor.id && cityCompletionCount(player) < completionTarget(session.players.length))
       .reduce((sum, player) => sum + player.built.length, 0);
     score += Math.min(18, vulnerable * 2);
   }
@@ -1291,7 +1291,7 @@ function botUseWarlordDestruction(session, actor, action, notes) {
   if (action.destructionUsed) return;
   const candidates = [];
   for (const owner of session.players) {
-    if (owner.id === actor.id || cityCompletionCount(owner) >= 7 || isRankEightProtected(session, owner)) continue;
+    if (owner.id === actor.id || cityCompletionCount(owner) >= completionTarget(session.players.length) || isRankEightProtected(session, owner)) continue;
     owner.built.forEach((district, index) => {
       if (district.id === 'keep') return;
       const cost = districtDestructionCost(owner, district);
@@ -1315,7 +1315,7 @@ function botUseMarshal(session, actor, action, notes) {
   if (action.specialUsed) return;
   const candidates = [];
   for (const owner of session.players) {
-    if (owner.id === actor.id || cityCompletionCount(owner) >= 7 || isRankEightProtected(session, owner)) continue;
+    if (owner.id === actor.id || cityCompletionCount(owner) >= completionTarget(session.players.length) || isRankEightProtected(session, owner)) continue;
     for (let index = 0; index < owner.built.length; index += 1) {
       const district = owner.built[index];
       const cost = districtValue(district);
@@ -1506,6 +1506,7 @@ api.post('/session', async (req, res, next) => {
       gold: 0,
       built: [],
       hand: [],
+      characterIds: [],
       characterId: null,
       isBot: false
     };
@@ -1557,6 +1558,7 @@ api.post('/session/:code/join', async (req, res, next) => {
         gold: 0,
         built: [],
         hand: [],
+        characterIds: [],
         characterId: null,
         isBot: false
       });
@@ -1650,7 +1652,9 @@ api.post('/session/:code/config/characters', async (req, res, next) => {
       requireHost(session, actor);
       if (session.phase !== 'lobby') throw httpError(409, 'lobby_only');
       try {
-        session.selectedCharacterIds = validateCharacterSelection(req.body.characterIds);
+        session.selectedCharacterIds = session.players.length >= 2
+          ? validateCharactersForPlayerCount(session.players.length, req.body.characterIds)
+          : validateCharacterSelection(req.body.characterIds);
       } catch (error) {
         throw httpError(400, error.message);
       }
@@ -2232,7 +2236,7 @@ api.post('/session/:code/turn/ability', async (req, res, next) => {
         if (action.destructionUsed) throw httpError(409, 'ability_already_used');
         const found = findBuiltDistrict(session, String(req.body.cardId || ''));
         if (!found) throw httpError(404, 'district_not_found');
-        if (cityCompletionCount(found.owner) >= 7) throw httpError(409, 'completed_city_protected');
+        if (cityCompletionCount(found.owner) >= completionTarget(session.players.length)) throw httpError(409, 'completed_city_protected');
         if (isRankEightProtected(session, found.owner)) throw httpError(409, 'bishop_protected');
         if (found.district.id === 'keep') throw httpError(409, 'keep_protected');
         const destroyCost = districtDestructionCost(found.owner, found.district);
@@ -2250,7 +2254,7 @@ api.post('/session/:code/turn/ability', async (req, res, next) => {
         if (!ownFound || ownFound.owner.id !== actor.id || !targetFound || targetFound.owner.id === actor.id) {
           throw httpError(400, 'invalid_district_target');
         }
-        if (cityCompletionCount(targetFound.owner) >= 7) throw httpError(409, 'completed_city_protected');
+        if (cityCompletionCount(targetFound.owner) >= completionTarget(session.players.length)) throw httpError(409, 'completed_city_protected');
         if (isRankEightProtected(session, targetFound.owner)) throw httpError(409, 'bishop_protected');
 
         const actorOther = actor.built.filter((district) => district.cardId !== ownFound.district.cardId);
@@ -2273,7 +2277,7 @@ api.post('/session/:code/turn/ability', async (req, res, next) => {
         if (action.specialUsed) throw httpError(409, 'ability_already_used');
         const found = findBuiltDistrict(session, String(req.body.cardId || ''));
         if (!found || found.owner.id === actor.id) throw httpError(400, 'invalid_district_target');
-        if (cityCompletionCount(found.owner) >= 7) throw httpError(409, 'completed_city_protected');
+        if (cityCompletionCount(found.owner) >= completionTarget(session.players.length)) throw httpError(409, 'completed_city_protected');
         if (isRankEightProtected(session, found.owner)) throw httpError(409, 'bishop_protected');
         const cost = districtValue(found.district);
         if (cost > 3) throw httpError(409, 'marshal_cost_limit');
@@ -2395,10 +2399,7 @@ api.post('/session/:code/district', async (req, res, next) => {
         builtAtRound: session.round
       };
       target.built.push(district);
-      if (!session.firstCompletedPlayerId && target.built.length >= 7) {
-        session.firstCompletedPlayerId = target.id;
-        session.finalRound = true;
-      }
+      updateCityCompletion(session, target);
       await saveSession(session);
     });
     res.status(201).json({ ok: true });
