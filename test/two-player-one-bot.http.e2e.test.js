@@ -116,3 +116,92 @@ test('HTTP E2E: one human + one bot receives two characters and four total chara
   const ownTurnEntries = turns.players.find((player) => player.id === auth.playerId);
   assert.equal(ownTurnEntries.characterCount, 2);
 });
+
+
+test('HTTP E2E: the eighth district starts the final round and the last character turn finishes the game', async (t) => {
+  const { server, baseUrl } = await startServer();
+  t.after(() => new Promise((resolve, reject) => {
+    server.close((error) => error ? reject(error) : resolve());
+  }));
+
+  const created = await jsonRequest(baseUrl, '/session', {
+    method: 'POST', body: { hostName: 'Two-player endgame test' }
+  });
+  const auth = { playerId: created.playerId, token: created.token };
+  const route = `/session/${created.code}`;
+
+  await jsonRequest(baseUrl, `${route}/bots`, {
+    method: 'POST', auth, body: { count: 1 }
+  });
+  await jsonRequest(baseUrl, `${route}/start`, { method: 'POST', auth });
+
+  let draft = await jsonRequest(baseUrl, `${route}/state`, { auth });
+  await jsonRequest(baseUrl, `${route}/draft/choose`, {
+    method: 'POST', auth, body: { characterId: draft.draft.options[0].id }
+  });
+  draft = await jsonRequest(baseUrl, `${route}/state`, { auth });
+  await jsonRequest(baseUrl, `${route}/draft/choose`, {
+    method: 'POST', auth,
+    body: {
+      characterId: draft.draft.options[0].id,
+      discardCharacterId: draft.draft.options[1].id
+    }
+  });
+
+  let state = await jsonRequest(baseUrl, `${route}/state`, { auth });
+  assert.equal(state.phase, 'turns');
+  assert.equal(state.players.length, 2);
+  assert.equal(state.finalRound, false);
+  assert.equal(state.turn.total, 4);
+
+  // The manual-district HTTP action uses updateCityCompletion, just as real
+  // hand-card builds, so this isolates the 7->8 threshold and round finish.
+  for (let districtNumber = 1; districtNumber <= 7; districtNumber += 1) {
+    await jsonRequest(baseUrl, `${route}/district`, {
+      method: 'POST', auth,
+      body: {
+        name: `Regression district ${districtNumber}`,
+        type: 'trade', cost: 1, playerId: auth.playerId
+      }
+    });
+  }
+
+  state = await jsonRequest(baseUrl, `${route}/state`, { auth });
+  assert.equal(state.me.built.length, 7);
+  assert.equal(state.finalRound, false);
+  assert.equal(state.firstCompletedPlayerId, null);
+
+  await jsonRequest(baseUrl, `${route}/district`, {
+    method: 'POST', auth,
+    body: {
+      name: 'Eighth regression district',
+      type: 'trade', cost: 1, playerId: auth.playerId
+    }
+  });
+
+  state = await jsonRequest(baseUrl, `${route}/state`, { auth });
+  assert.equal(state.me.built.length, 8);
+  assert.equal(state.finalRound, true);
+  assert.equal(state.firstCompletedPlayerId, auth.playerId);
+  assert.equal(state.phase, 'turns', 'remaining character turns must still be played');
+
+  // All bot character turns are played automatically. End each human
+  // character turn, then assert that NO subsequent draft is started.
+  for (let guard = 0; guard < 5 && state.phase === 'turns'; guard += 1) {
+    assert.equal(state.turn.activePlayerId, auth.playerId);
+    if (!state.turn.action.resourceGathered) {
+      await jsonRequest(baseUrl, `${route}/turn/resource`, {
+        method: 'POST', auth, body: { mode: 'gold' }
+      });
+    }
+    await jsonRequest(baseUrl, `${route}/turn/end`, {
+      method: 'POST', auth
+    });
+    state = await jsonRequest(baseUrl, `${route}/state`, { auth });
+  }
+
+  assert.equal(state.phase, 'finished', 'the game must end at the end of the current round');
+  assert.equal(state.round, 1, 'the game must not start another round after eighth district');
+  assert.equal(state.winnerPlayerId, auth.playerId);
+  assert.equal(state.scores.find((score) => score.playerId === auth.playerId).completionBonus, 4);
+});
