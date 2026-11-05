@@ -10,9 +10,12 @@ const {
   CHARACTER_MAP,
   DEFAULT_CHARACTER_IDS,
   validateCharacterSelection,
+  validateCharactersForPlayerCount,
+  completionTarget,
   inUseCharacters,
   createDraft,
   draftOptions,
+  draftDiscardRequired,
   chooseCharacter,
   turnOrderFromChoices,
   scorePlayer
@@ -163,9 +166,30 @@ function ensurePlayerFields(player) {
   if (!Array.isArray(player.built)) player.built = [];
   if (!Array.isArray(player.hand)) player.hand = [];
   if (!Number.isInteger(player.gold)) player.gold = Number(player.gold || 0);
+  if (!Array.isArray(player.characterIds)) {
+    player.characterIds = player.characterId ? [player.characterId] : [];
+  }
+  player.characterIds = [...new Set(player.characterIds.filter((idValue) => CHARACTER_MAP.has(idValue)))];
+  player.characterId = player.characterIds[0] || null;
   player.isBot = Boolean(player.isBot);
   player.botStrategy = player.isBot ? normalizeBotStrategy(player.botStrategy) : null;
   return player;
+}
+
+function playerCharacterIds(player) {
+  ensurePlayerFields(player);
+  return [...player.characterIds];
+}
+
+function playerHasCharacter(player, characterId) {
+  return playerCharacterIds(player).includes(characterId);
+}
+
+function highestCharacterRank(player) {
+  return playerCharacterIds(player).reduce(
+    (highest, characterId) => Math.max(highest, CHARACTER_MAP.get(characterId)?.rank || 0),
+    0
+  );
 }
 
 function ensureRoundEffects(session) {
@@ -299,8 +323,13 @@ function characterPublic(idValue) {
 function playerView(session, player, actor) {
   ensurePlayerFields(player);
   const self = player.id === actor.id;
-  const revealed = session.turn?.revealedPlayerIds?.includes(player.id) || session.phase === 'finished';
-  const canSeeCharacter = self || revealed;
+  const ownedIds = playerCharacterIds(player);
+  const revealedIds = new Set(session.turn?.revealedCharacterIds || []);
+  const visibleIds = self || session.phase === 'finished'
+    ? ownedIds
+    : ownedIds.filter((characterId) => revealedIds.has(characterId));
+  const visibleCharacters = visibleIds.map(characterPublic).filter(Boolean);
+
   return {
     id: player.id,
     name: player.name,
@@ -309,8 +338,10 @@ function playerView(session, player, actor) {
     built: player.built.map(districtPublic),
     handCount: player.hand.length,
     ...(self ? { hand: player.hand.map(districtPublic) } : {}),
-    character: canSeeCharacter && player.characterId ? characterPublic(player.characterId) : null,
-    hasCharacter: Boolean(player.characterId),
+    characters: visibleCharacters,
+    character: visibleCharacters[0] || null,
+    hasCharacter: ownedIds.length > 0,
+    characterCount: ownedIds.length,
     isCrowned: player.id === session.crownPlayerId,
     isHost: player.id === session.hostPlayerId,
     isBot: Boolean(player.isBot),
@@ -349,16 +380,21 @@ function stateView(session, actor, ttlSeconds) {
   const currentDraftPlayerId = session.phase === 'draft' && draft ? draft.order[draft.index] : null;
   const meIsDrafter = currentDraftPlayerId === actor.id;
   const turn = activeTurn(session);
-  const characters = (session.players.length >= 4
-    ? inUseCharacters(session.players.length, session.selectedCharacterIds)
-    : session.selectedCharacterIds.slice(0, 8).map((idValue) => CHARACTER_MAP.get(idValue)))
-    .filter(Boolean)
-    .map((character) => characterPublic(character.id));
+  let inGameCharacters;
+  try {
+    inGameCharacters = session.players.length >= 2
+      ? inUseCharacters(session.players.length, session.selectedCharacterIds)
+      : session.selectedCharacterIds.slice(0, 8).map((idValue) => CHARACTER_MAP.get(idValue));
+  } catch (_error) {
+    inGameCharacters = session.selectedCharacterIds.slice(0, session.players.length === 3 ? 9 : 8)
+      .map((idValue) => CHARACTER_MAP.get(idValue));
+  }
+  const characters = inGameCharacters.filter(Boolean).map((character) => characterPublic(character.id));
   const scores = session.phase === 'finished'
     ? sortedPlayers(session).map((p) => ({
       playerId: p.id,
       ...scorePlayer(p, session),
-      lastCharacterRank: CHARACTER_MAP.get(p.characterId)?.rank || 0
+      lastCharacterRank: highestCharacterRank(p)
     }))
     : [];
   const effects = ensureRoundEffects(session);
@@ -407,10 +443,15 @@ function stateView(session, actor, ttlSeconds) {
     draft: draft ? {
       currentPlayerId: currentDraftPlayerId,
       faceUp: draft.faceUpIds.map(characterPublic),
-      hiddenDiscardCount: 1 + (draft.finalDiscardId ? 1 : 0),
+      hiddenDiscardCount:
+        (draft.faceDownId ? 1 : 0) +
+        (draft.discardedIds?.length || 0) +
+        (draft.finalDiscardId ? 1 : 0),
       availableCount: draftOptions(draft).length,
+      discardRequired: meIsDrafter ? draftDiscardRequired(draft) : false,
       options: meIsDrafter ? draftOptions(draft).map(characterPublic) : [],
-      myChoice: draft.choices[actor.id] ? characterPublic(draft.choices[actor.id]) : null
+      myChoices: (draft.choices[actor.id] || []).map(characterPublic).filter(Boolean),
+      myChoice: (draft.choices[actor.id] || []).map(characterPublic).filter(Boolean).at(-1) || null
     } : null,
     turn: turn ? {
       activePlayerId: turn.playerId,
@@ -428,6 +469,7 @@ function initializePlayerForGame(player) {
   player.gold = 2;
   player.built = [];
   player.hand = [];
+  player.characterIds = [];
   player.characterId = null;
 }
 
@@ -439,7 +481,10 @@ function setupDistrictDeck(session) {
 }
 
 function prepareDraft(session) {
-  session.players.forEach((p) => { p.characterId = null; });
+  session.players.forEach((player) => {
+    player.characterIds = [];
+    player.characterId = null;
+  });
   session.roundFaceUpCharacterIds = [];
   session.draft = createDraft(sortedPlayers(session), session.crownPlayerId, session.selectedCharacterIds);
   session.turn = null;
@@ -450,15 +495,19 @@ function prepareDraft(session) {
 
 function beginTurns(session) {
   session.roundFaceUpCharacterIds = [...session.draft.faceUpIds];
-  for (const [playerId, characterId] of Object.entries(session.draft.choices)) {
+  for (const [playerId, selected] of Object.entries(session.draft.choices)) {
     const player = getPlayer(session, playerId);
-    if (player) player.characterId = characterId;
+    if (!player) continue;
+    const characterIds = Array.isArray(selected) ? selected : [selected];
+    player.characterIds = characterIds.filter(Boolean);
+    player.characterId = player.characterIds[0] || null;
   }
   const order = turnOrderFromChoices(session.draft.choices);
   session.turn = {
     order,
     index: 0,
     revealedPlayerIds: [],
+    revealedCharacterIds: [],
     skippedPlayerIds: [],
     action: null
   };
