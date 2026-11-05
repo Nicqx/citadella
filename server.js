@@ -228,6 +228,7 @@ function ensureSessionFields(session) {
     session.selectedCharacterIds = [...DEFAULT_CHARACTER_IDS];
   }
   if (!Number.isInteger(session.taxPool)) session.taxPool = Number(session.taxPool || 0);
+  if (!Array.isArray(session.finalRevealedCharacterIds)) session.finalRevealedCharacterIds = [];
   ensureRoundEffects(session);
   return session;
 }
@@ -394,7 +395,9 @@ function stateView(session, actor, ttlSeconds) {
     ? sortedPlayers(session).map((p) => ({
       playerId: p.id,
       ...scorePlayer(p, session),
-      lastCharacterRank: highestCharacterRank(p)
+      lastCharacterRank: session.phase === 'finished'
+        ? highestRevealedRankForPlayer(session, p)
+        : highestCharacterRank(p)
     }))
     : [];
   const effects = ensureRoundEffects(session);
@@ -601,11 +604,13 @@ function activateCurrentTurn(session) {
     if (!session.turn.revealedPlayerIds.includes(current.playerId)) {
       session.turn.revealedPlayerIds.push(current.playerId);
     }
+    if (!session.turn.revealedCharacterIds.includes(current.characterId)) {
+      session.turn.revealedCharacterIds.push(current.characterId);
+    }
 
     const isBewitchedVictim = !current.witchContinuation &&
       effects.witchTargetCharacterId === current.characterId &&
-      effects.witchPlayerId &&
-      effects.witchPlayerId !== current.playerId;
+      effects.witchPlayerId;
 
     session.turn.action = {
       playerId: current.playerId,
@@ -660,23 +665,38 @@ function afterResourceChoice(session) {
   }
 }
 
+function highestRevealedRankForPlayer(session, player) {
+  const revealed = new Set(
+    session.turn?.revealedCharacterIds ||
+    session.finalRevealedCharacterIds ||
+    []
+  );
+  return playerCharacterIds(player)
+    .filter((characterId) => revealed.has(characterId))
+    .reduce(
+      (highest, characterId) => Math.max(highest, CHARACTER_MAP.get(characterId)?.rank || 0),
+      0
+    );
+}
+
 function calculateWinner(session) {
-  const ranked = sortedPlayers(session).map((p) => {
-    const score = scorePlayer(p, session);
+  const ranked = sortedPlayers(session).map((player) => {
+    const score = scorePlayer(player, session);
     return {
-      playerId: p.id,
+      playerId: player.id,
       total: score.total,
-      rank: CHARACTER_MAP.get(p.characterId)?.rank || 0
+      rank: highestRevealedRankForPlayer(session, player)
     };
   }).sort((a, b) => b.total - a.total || b.rank - a.rank);
   return ranked[0]?.playerId || null;
 }
 
 function finishGame(session) {
+  session.finalRevealedCharacterIds = [...(session.turn?.revealedCharacterIds || [])];
+  session.winnerPlayerId = calculateWinner(session);
   session.phase = 'finished';
   session.draft = null;
   session.turn = null;
-  session.winnerPlayerId = calculateWinner(session);
 }
 
 function completeRound(session) {
@@ -684,7 +704,7 @@ function completeRound(session) {
   const killedCharacterId = effects.assassinatedCharacterId;
 
   if (isRankFourCharacter(killedCharacterId)) {
-    const killedRankFour = session.players.find((player) => player.characterId === killedCharacterId);
+    const killedRankFour = session.players.find((player) => playerHasCharacter(player, killedCharacterId));
     if (killedRankFour) {
       if (killedCharacterId === 'emperor') {
         const players = sortedPlayers(session);
@@ -695,7 +715,7 @@ function completeRound(session) {
         session.crownPlayerId = killedRankFour.id;
       }
 
-      const queen = session.players.find((player) => player.characterId === 'queen');
+      const queen = session.players.find((player) => playerHasCharacter(player, 'queen'));
       if (
         queen &&
         killedCharacterId !== 'queen' &&
@@ -794,18 +814,22 @@ function isRankFourCharacter(characterId) {
 
 function isRankEightProtected(session, owner) {
   const effects = ensureRoundEffects(session);
-  if (owner.characterId === 'bishop' && effects.assassinatedCharacterId !== 'bishop') return true;
+  if (playerHasCharacter(owner, 'bishop') && effects.assassinatedCharacterId !== 'bishop') return true;
   return owner.id === effects.witchPlayerId &&
     effects.witchBorrowedCharacterId === 'bishop' &&
     effects.assassinatedCharacterId !== 'bishop';
 }
 
 function taxCollectorActive(session) {
-  if (session.players.length !== 8) return false;
-  return session.selectedCharacterIds?.[8] === 'tax-collector';
+  try {
+    return inUseCharacters(session.players.length, session.selectedCharacterIds)
+      .some((character) => character.id === 'tax-collector');
+  } catch (_error) {
+    return false;
+  }
 }
 
-function applyBuildTax(session, payer, actingCharacterId = payer?.characterId) {
+function applyBuildTax(session, payer, actingCharacterId = null) {
   if (!taxCollectorActive(session) || !payer || actingCharacterId === 'tax-collector' || payer.gold <= 0) return 0;
   payer.gold -= 1;
   session.taxPool = Number(session.taxPool || 0) + 1;
@@ -813,7 +837,10 @@ function applyBuildTax(session, payer, actingCharacterId = payer?.characterId) {
 }
 
 function updateCityCompletion(session, player) {
-  if (!session.firstCompletedPlayerId && cityCompletionCount(player) >= 7) {
+  if (
+    !session.firstCompletedPlayerId &&
+    cityCompletionCount(player) >= completionTarget(session.players.length)
+  ) {
     session.firstCompletedPlayerId = player.id;
     session.finalRound = true;
   }
@@ -862,6 +889,7 @@ function setBotCount(session, requestedCount) {
       gold: 0,
       built: [],
       hand: [],
+      characterIds: [],
       characterId: null,
       botStrategy: 'adaptive'
     });
@@ -1653,14 +1681,18 @@ api.post('/session/:code/start', async (req, res, next) => {
       const actor = authPlayer(session, req);
       requireHost(session, actor);
       if (!['lobby', 'finished'].includes(session.phase)) throw httpError(409, 'cannot_start_now');
-      if (session.players.length < 4 || session.players.length > 8) throw httpError(400, 'supported_player_count');
+      if (session.players.length < 2 || session.players.length > 8) throw httpError(400, 'supported_player_count');
       session.selectedUniqueDistrictIds = validateUniqueDistrictSelection(session.selectedUniqueDistrictIds);
       try {
-        session.selectedCharacterIds = validateCharacterSelection(session.selectedCharacterIds);
+        session.selectedCharacterIds = validateCharactersForPlayerCount(
+          session.players.length,
+          session.selectedCharacterIds
+        );
       } catch (error) {
         throw httpError(400, error.message);
       }
       session.taxPool = 0;
+      session.finalRevealedCharacterIds = [];
 
       session.round = 1;
       session.botActionLog = [];
@@ -1686,7 +1718,12 @@ api.post('/session/:code/draft/choose', async (req, res, next) => {
       if (session.phase !== 'draft' || !session.draft) throw httpError(409, 'draft_not_active');
       let completed;
       try {
-        completed = chooseCharacter(session.draft, actor.id, String(req.body.characterId || ''));
+        completed = chooseCharacter(
+          session.draft,
+          actor.id,
+          String(req.body.characterId || ''),
+          req.body.discardCharacterId ? String(req.body.discardCharacterId) : null
+        );
       } catch (error) {
         throw httpError(409, error.message);
       }
