@@ -1055,7 +1055,11 @@ function resolveBotBlackmail(session, actor, action, notes) {
     if (blackmailer) blackmailer.gold = Math.min(MAX_GOLD, blackmailer.gold + amount);
     notes.push(`Zsaroláskor ${amount} aranyat fizetett.`);
   } else {
-    if (effects.blackmailRealCharacterId === activeTurn(session)?.characterId && blackmailer) {
+    if (
+      effects.blackmailRealCharacterId === activeTurn(session)?.characterId &&
+      blackmailer &&
+      blackmailer.id !== actor.id
+    ) {
       blackmailer.gold = Math.min(MAX_GOLD, blackmailer.gold + actor.gold);
       actor.gold = 0;
       notes.push('Kockáztatott a zsarolásnál, és valódi célpont volt.');
@@ -1450,10 +1454,35 @@ function runBots(session) {
       const playerId = session.draft.order[session.draft.index];
       const player = getPlayer(session, playerId);
       if (!player?.isBot) break;
-      const choice = botChooseCharacter(session, player, draftOptions(session.draft));
+      const options = draftOptions(session.draft);
+      const choice = botChooseCharacter(session, player, options);
       if (!choice) break;
-      const completed = chooseCharacter(session.draft, player.id, choice);
-      addBotAction(session, player, null, ['Titokban, a beállított stratégiája alapján karaktert választott.'], 'draft');
+
+      let discardCharacterId = null;
+      if (draftDiscardRequired(session.draft)) {
+        const discardOptions = options
+          .filter((characterId) => characterId !== choice)
+          .map((characterId) => ({
+            characterId,
+            score: botCharacterScore(session, player, characterId)
+          }))
+          .sort((a, b) => a.score - b.score);
+        discardCharacterId = discardOptions[0]?.characterId || null;
+      }
+
+      const completed = chooseCharacter(
+        session.draft,
+        player.id,
+        choice,
+        discardCharacterId
+      );
+      addBotAction(
+        session,
+        player,
+        null,
+        ['Titokban, a beállított stratégiája alapján karaktert választott.'],
+        'draft'
+      );
       if (completed) beginTurns(session);
       continue;
     }
@@ -1809,7 +1838,11 @@ api.post('/session/:code/turn/blackmail', async (req, res, next) => {
         actor.gold -= amount;
         if (blackmailer) blackmailer.gold = Math.min(MAX_GOLD, blackmailer.gold + amount);
       } else if (response === 'risk') {
-        if (effects.blackmailRealCharacterId === current.characterId && blackmailer) {
+        if (
+          effects.blackmailRealCharacterId === current.characterId &&
+          blackmailer &&
+          blackmailer.id !== actor.id
+        ) {
           blackmailer.gold = Math.min(MAX_GOLD, blackmailer.gold + actor.gold);
           actor.gold = 0;
         }
@@ -1856,7 +1889,7 @@ function finalizeDistrictBuild(session, builder, currentCharacterId, card, paidC
   applyBuildTax(
     session,
     finalOwner,
-    confiscated ? finalOwner.characterId : currentCharacterId
+    confiscated ? 'magistrate' : currentCharacterId
   );
   updateCityCompletion(session, finalOwner);
   return { finalOwner, confiscated };
