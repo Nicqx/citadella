@@ -10,9 +10,12 @@ const {
   CHARACTER_MAP,
   DEFAULT_CHARACTER_IDS,
   validateCharacterSelection,
+  validateCharactersForPlayerCount,
+  completionTarget,
   inUseCharacters,
   createDraft,
   draftOptions,
+  draftDiscardRequired,
   chooseCharacter,
   turnOrderFromChoices,
   scorePlayer
@@ -163,9 +166,30 @@ function ensurePlayerFields(player) {
   if (!Array.isArray(player.built)) player.built = [];
   if (!Array.isArray(player.hand)) player.hand = [];
   if (!Number.isInteger(player.gold)) player.gold = Number(player.gold || 0);
+  if (!Array.isArray(player.characterIds)) {
+    player.characterIds = player.characterId ? [player.characterId] : [];
+  }
+  player.characterIds = [...new Set(player.characterIds.filter((idValue) => CHARACTER_MAP.has(idValue)))];
+  player.characterId = player.characterIds[0] || null;
   player.isBot = Boolean(player.isBot);
   player.botStrategy = player.isBot ? normalizeBotStrategy(player.botStrategy) : null;
   return player;
+}
+
+function playerCharacterIds(player) {
+  ensurePlayerFields(player);
+  return [...player.characterIds];
+}
+
+function playerHasCharacter(player, characterId) {
+  return playerCharacterIds(player).includes(characterId);
+}
+
+function highestCharacterRank(player) {
+  return playerCharacterIds(player).reduce(
+    (highest, characterId) => Math.max(highest, CHARACTER_MAP.get(characterId)?.rank || 0),
+    0
+  );
 }
 
 function ensureRoundEffects(session) {
@@ -204,6 +228,7 @@ function ensureSessionFields(session) {
     session.selectedCharacterIds = [...DEFAULT_CHARACTER_IDS];
   }
   if (!Number.isInteger(session.taxPool)) session.taxPool = Number(session.taxPool || 0);
+  if (!Array.isArray(session.finalRevealedCharacterIds)) session.finalRevealedCharacterIds = [];
   ensureRoundEffects(session);
   return session;
 }
@@ -299,8 +324,13 @@ function characterPublic(idValue) {
 function playerView(session, player, actor) {
   ensurePlayerFields(player);
   const self = player.id === actor.id;
-  const revealed = session.turn?.revealedPlayerIds?.includes(player.id) || session.phase === 'finished';
-  const canSeeCharacter = self || revealed;
+  const ownedIds = playerCharacterIds(player);
+  const revealedIds = new Set(session.turn?.revealedCharacterIds || []);
+  const visibleIds = self || session.phase === 'finished'
+    ? ownedIds
+    : ownedIds.filter((characterId) => revealedIds.has(characterId));
+  const visibleCharacters = visibleIds.map(characterPublic).filter(Boolean);
+
   return {
     id: player.id,
     name: player.name,
@@ -309,8 +339,10 @@ function playerView(session, player, actor) {
     built: player.built.map(districtPublic),
     handCount: player.hand.length,
     ...(self ? { hand: player.hand.map(districtPublic) } : {}),
-    character: canSeeCharacter && player.characterId ? characterPublic(player.characterId) : null,
-    hasCharacter: Boolean(player.characterId),
+    characters: visibleCharacters,
+    character: visibleCharacters[0] || null,
+    hasCharacter: ownedIds.length > 0,
+    characterCount: ownedIds.length,
     isCrowned: player.id === session.crownPlayerId,
     isHost: player.id === session.hostPlayerId,
     isBot: Boolean(player.isBot),
@@ -349,16 +381,23 @@ function stateView(session, actor, ttlSeconds) {
   const currentDraftPlayerId = session.phase === 'draft' && draft ? draft.order[draft.index] : null;
   const meIsDrafter = currentDraftPlayerId === actor.id;
   const turn = activeTurn(session);
-  const characters = (session.players.length >= 4
-    ? inUseCharacters(session.players.length, session.selectedCharacterIds)
-    : session.selectedCharacterIds.slice(0, 8).map((idValue) => CHARACTER_MAP.get(idValue)))
-    .filter(Boolean)
-    .map((character) => characterPublic(character.id));
+  let inGameCharacters;
+  try {
+    inGameCharacters = session.players.length >= 2
+      ? inUseCharacters(session.players.length, session.selectedCharacterIds)
+      : session.selectedCharacterIds.slice(0, 8).map((idValue) => CHARACTER_MAP.get(idValue));
+  } catch (_error) {
+    inGameCharacters = session.selectedCharacterIds.slice(0, session.players.length === 3 ? 9 : 8)
+      .map((idValue) => CHARACTER_MAP.get(idValue));
+  }
+  const characters = inGameCharacters.filter(Boolean).map((character) => characterPublic(character.id));
   const scores = session.phase === 'finished'
     ? sortedPlayers(session).map((p) => ({
       playerId: p.id,
       ...scorePlayer(p, session),
-      lastCharacterRank: CHARACTER_MAP.get(p.characterId)?.rank || 0
+      lastCharacterRank: session.phase === 'finished'
+        ? highestRevealedRankForPlayer(session, p)
+        : highestCharacterRank(p)
     }))
     : [];
   const effects = ensureRoundEffects(session);
@@ -407,10 +446,15 @@ function stateView(session, actor, ttlSeconds) {
     draft: draft ? {
       currentPlayerId: currentDraftPlayerId,
       faceUp: draft.faceUpIds.map(characterPublic),
-      hiddenDiscardCount: 1 + (draft.finalDiscardId ? 1 : 0),
+      hiddenDiscardCount:
+        (draft.faceDownId ? 1 : 0) +
+        (draft.discardedIds?.length || 0) +
+        (draft.finalDiscardId ? 1 : 0),
       availableCount: draftOptions(draft).length,
+      discardRequired: meIsDrafter ? draftDiscardRequired(draft) : false,
       options: meIsDrafter ? draftOptions(draft).map(characterPublic) : [],
-      myChoice: draft.choices[actor.id] ? characterPublic(draft.choices[actor.id]) : null
+      myChoices: (draft.choices[actor.id] || []).map(characterPublic).filter(Boolean),
+      myChoice: (draft.choices[actor.id] || []).map(characterPublic).filter(Boolean).at(-1) || null
     } : null,
     turn: turn ? {
       activePlayerId: turn.playerId,
@@ -428,6 +472,7 @@ function initializePlayerForGame(player) {
   player.gold = 2;
   player.built = [];
   player.hand = [];
+  player.characterIds = [];
   player.characterId = null;
 }
 
@@ -439,7 +484,10 @@ function setupDistrictDeck(session) {
 }
 
 function prepareDraft(session) {
-  session.players.forEach((p) => { p.characterId = null; });
+  session.players.forEach((player) => {
+    player.characterIds = [];
+    player.characterId = null;
+  });
   session.roundFaceUpCharacterIds = [];
   session.draft = createDraft(sortedPlayers(session), session.crownPlayerId, session.selectedCharacterIds);
   session.turn = null;
@@ -450,15 +498,19 @@ function prepareDraft(session) {
 
 function beginTurns(session) {
   session.roundFaceUpCharacterIds = [...session.draft.faceUpIds];
-  for (const [playerId, characterId] of Object.entries(session.draft.choices)) {
+  for (const [playerId, selected] of Object.entries(session.draft.choices)) {
     const player = getPlayer(session, playerId);
-    if (player) player.characterId = characterId;
+    if (!player) continue;
+    const characterIds = Array.isArray(selected) ? selected : [selected];
+    player.characterIds = characterIds.filter(Boolean);
+    player.characterId = player.characterIds[0] || null;
   }
   const order = turnOrderFromChoices(session.draft.choices);
   session.turn = {
     order,
     index: 0,
     revealedPlayerIds: [],
+    revealedCharacterIds: [],
     skippedPlayerIds: [],
     action: null
   };
@@ -552,11 +604,13 @@ function activateCurrentTurn(session) {
     if (!session.turn.revealedPlayerIds.includes(current.playerId)) {
       session.turn.revealedPlayerIds.push(current.playerId);
     }
+    if (!session.turn.revealedCharacterIds.includes(current.characterId)) {
+      session.turn.revealedCharacterIds.push(current.characterId);
+    }
 
     const isBewitchedVictim = !current.witchContinuation &&
       effects.witchTargetCharacterId === current.characterId &&
-      effects.witchPlayerId &&
-      effects.witchPlayerId !== current.playerId;
+      effects.witchPlayerId;
 
     session.turn.action = {
       playerId: current.playerId,
@@ -611,23 +665,38 @@ function afterResourceChoice(session) {
   }
 }
 
+function highestRevealedRankForPlayer(session, player) {
+  const revealed = new Set(
+    session.turn?.revealedCharacterIds ||
+    session.finalRevealedCharacterIds ||
+    []
+  );
+  return playerCharacterIds(player)
+    .filter((characterId) => revealed.has(characterId))
+    .reduce(
+      (highest, characterId) => Math.max(highest, CHARACTER_MAP.get(characterId)?.rank || 0),
+      0
+    );
+}
+
 function calculateWinner(session) {
-  const ranked = sortedPlayers(session).map((p) => {
-    const score = scorePlayer(p, session);
+  const ranked = sortedPlayers(session).map((player) => {
+    const score = scorePlayer(player, session);
     return {
-      playerId: p.id,
+      playerId: player.id,
       total: score.total,
-      rank: CHARACTER_MAP.get(p.characterId)?.rank || 0
+      rank: highestRevealedRankForPlayer(session, player)
     };
   }).sort((a, b) => b.total - a.total || b.rank - a.rank);
   return ranked[0]?.playerId || null;
 }
 
 function finishGame(session) {
+  session.finalRevealedCharacterIds = [...(session.turn?.revealedCharacterIds || [])];
+  session.winnerPlayerId = calculateWinner(session);
   session.phase = 'finished';
   session.draft = null;
   session.turn = null;
-  session.winnerPlayerId = calculateWinner(session);
 }
 
 function completeRound(session) {
@@ -635,7 +704,7 @@ function completeRound(session) {
   const killedCharacterId = effects.assassinatedCharacterId;
 
   if (isRankFourCharacter(killedCharacterId)) {
-    const killedRankFour = session.players.find((player) => player.characterId === killedCharacterId);
+    const killedRankFour = session.players.find((player) => playerHasCharacter(player, killedCharacterId));
     if (killedRankFour) {
       if (killedCharacterId === 'emperor') {
         const players = sortedPlayers(session);
@@ -646,7 +715,7 @@ function completeRound(session) {
         session.crownPlayerId = killedRankFour.id;
       }
 
-      const queen = session.players.find((player) => player.characterId === 'queen');
+      const queen = session.players.find((player) => playerHasCharacter(player, 'queen'));
       if (
         queen &&
         killedCharacterId !== 'queen' &&
@@ -745,18 +814,22 @@ function isRankFourCharacter(characterId) {
 
 function isRankEightProtected(session, owner) {
   const effects = ensureRoundEffects(session);
-  if (owner.characterId === 'bishop' && effects.assassinatedCharacterId !== 'bishop') return true;
+  if (playerHasCharacter(owner, 'bishop') && effects.assassinatedCharacterId !== 'bishop') return true;
   return owner.id === effects.witchPlayerId &&
     effects.witchBorrowedCharacterId === 'bishop' &&
     effects.assassinatedCharacterId !== 'bishop';
 }
 
 function taxCollectorActive(session) {
-  if (session.players.length !== 8) return false;
-  return session.selectedCharacterIds?.[8] === 'tax-collector';
+  try {
+    return inUseCharacters(session.players.length, session.selectedCharacterIds)
+      .some((character) => character.id === 'tax-collector');
+  } catch (_error) {
+    return false;
+  }
 }
 
-function applyBuildTax(session, payer, actingCharacterId = payer?.characterId) {
+function applyBuildTax(session, payer, actingCharacterId = null) {
   if (!taxCollectorActive(session) || !payer || actingCharacterId === 'tax-collector' || payer.gold <= 0) return 0;
   payer.gold -= 1;
   session.taxPool = Number(session.taxPool || 0) + 1;
@@ -764,7 +837,10 @@ function applyBuildTax(session, payer, actingCharacterId = payer?.characterId) {
 }
 
 function updateCityCompletion(session, player) {
-  if (!session.firstCompletedPlayerId && cityCompletionCount(player) >= 7) {
+  if (
+    !session.firstCompletedPlayerId &&
+    cityCompletionCount(player) >= completionTarget(session.players.length)
+  ) {
     session.firstCompletedPlayerId = player.id;
     session.finalRound = true;
   }
@@ -813,6 +889,7 @@ function setBotCount(session, requestedCount) {
       gold: 0,
       built: [],
       hand: [],
+      characterIds: [],
       characterId: null,
       botStrategy: 'adaptive'
     });
@@ -895,7 +972,7 @@ function botCharacterScore(session, actor, characterId) {
   if (['assassin', 'witch', 'magistrate'].includes(characterId)) score += 6;
   if (['warlord', 'marshal', 'diplomat'].includes(characterId)) {
     const vulnerable = session.players
-      .filter((player) => player.id !== actor.id && cityCompletionCount(player) < 7)
+      .filter((player) => player.id !== actor.id && cityCompletionCount(player) < completionTarget(session.players.length))
       .reduce((sum, player) => sum + player.built.length, 0);
     score += Math.min(18, vulnerable * 2);
   }
@@ -978,7 +1055,11 @@ function resolveBotBlackmail(session, actor, action, notes) {
     if (blackmailer) blackmailer.gold = Math.min(MAX_GOLD, blackmailer.gold + amount);
     notes.push(`Zsaroláskor ${amount} aranyat fizetett.`);
   } else {
-    if (effects.blackmailRealCharacterId === activeTurn(session)?.characterId && blackmailer) {
+    if (
+      effects.blackmailRealCharacterId === activeTurn(session)?.characterId &&
+      blackmailer &&
+      blackmailer.id !== actor.id
+    ) {
       blackmailer.gold = Math.min(MAX_GOLD, blackmailer.gold + actor.gold);
       actor.gold = 0;
       notes.push('Kockáztatott a zsarolásnál, és valódi célpont volt.');
@@ -1214,7 +1295,7 @@ function botUseWarlordDestruction(session, actor, action, notes) {
   if (action.destructionUsed) return;
   const candidates = [];
   for (const owner of session.players) {
-    if (owner.id === actor.id || cityCompletionCount(owner) >= 7 || isRankEightProtected(session, owner)) continue;
+    if (owner.id === actor.id || cityCompletionCount(owner) >= completionTarget(session.players.length) || isRankEightProtected(session, owner)) continue;
     owner.built.forEach((district, index) => {
       if (district.id === 'keep') return;
       const cost = districtDestructionCost(owner, district);
@@ -1238,7 +1319,7 @@ function botUseMarshal(session, actor, action, notes) {
   if (action.specialUsed) return;
   const candidates = [];
   for (const owner of session.players) {
-    if (owner.id === actor.id || cityCompletionCount(owner) >= 7 || isRankEightProtected(session, owner)) continue;
+    if (owner.id === actor.id || cityCompletionCount(owner) >= completionTarget(session.players.length) || isRankEightProtected(session, owner)) continue;
     for (let index = 0; index < owner.built.length; index += 1) {
       const district = owner.built[index];
       const cost = districtValue(district);
@@ -1373,10 +1454,35 @@ function runBots(session) {
       const playerId = session.draft.order[session.draft.index];
       const player = getPlayer(session, playerId);
       if (!player?.isBot) break;
-      const choice = botChooseCharacter(session, player, draftOptions(session.draft));
+      const options = draftOptions(session.draft);
+      const choice = botChooseCharacter(session, player, options);
       if (!choice) break;
-      const completed = chooseCharacter(session.draft, player.id, choice);
-      addBotAction(session, player, null, ['Titokban, a beállított stratégiája alapján karaktert választott.'], 'draft');
+
+      let discardCharacterId = null;
+      if (draftDiscardRequired(session.draft)) {
+        const discardOptions = options
+          .filter((characterId) => characterId !== choice)
+          .map((characterId) => ({
+            characterId,
+            score: botCharacterScore(session, player, characterId)
+          }))
+          .sort((a, b) => a.score - b.score);
+        discardCharacterId = discardOptions[0]?.characterId || null;
+      }
+
+      const completed = chooseCharacter(
+        session.draft,
+        player.id,
+        choice,
+        discardCharacterId
+      );
+      addBotAction(
+        session,
+        player,
+        null,
+        ['Titokban, a beállított stratégiája alapján karaktert választott.'],
+        'draft'
+      );
       if (completed) beginTurns(session);
       continue;
     }
@@ -1429,6 +1535,7 @@ api.post('/session', async (req, res, next) => {
       gold: 0,
       built: [],
       hand: [],
+      characterIds: [],
       characterId: null,
       isBot: false
     };
@@ -1480,6 +1587,7 @@ api.post('/session/:code/join', async (req, res, next) => {
         gold: 0,
         built: [],
         hand: [],
+        characterIds: [],
         characterId: null,
         isBot: false
       });
@@ -1573,7 +1681,9 @@ api.post('/session/:code/config/characters', async (req, res, next) => {
       requireHost(session, actor);
       if (session.phase !== 'lobby') throw httpError(409, 'lobby_only');
       try {
-        session.selectedCharacterIds = validateCharacterSelection(req.body.characterIds);
+        session.selectedCharacterIds = session.players.length >= 2
+          ? validateCharactersForPlayerCount(session.players.length, req.body.characterIds)
+          : validateCharacterSelection(req.body.characterIds);
       } catch (error) {
         throw httpError(400, error.message);
       }
@@ -1604,14 +1714,18 @@ api.post('/session/:code/start', async (req, res, next) => {
       const actor = authPlayer(session, req);
       requireHost(session, actor);
       if (!['lobby', 'finished'].includes(session.phase)) throw httpError(409, 'cannot_start_now');
-      if (session.players.length < 4 || session.players.length > 8) throw httpError(400, 'supported_player_count');
+      if (session.players.length < 2 || session.players.length > 8) throw httpError(400, 'supported_player_count');
       session.selectedUniqueDistrictIds = validateUniqueDistrictSelection(session.selectedUniqueDistrictIds);
       try {
-        session.selectedCharacterIds = validateCharacterSelection(session.selectedCharacterIds);
+        session.selectedCharacterIds = validateCharactersForPlayerCount(
+          session.players.length,
+          session.selectedCharacterIds
+        );
       } catch (error) {
         throw httpError(400, error.message);
       }
       session.taxPool = 0;
+      session.finalRevealedCharacterIds = [];
 
       session.round = 1;
       session.botActionLog = [];
@@ -1637,7 +1751,12 @@ api.post('/session/:code/draft/choose', async (req, res, next) => {
       if (session.phase !== 'draft' || !session.draft) throw httpError(409, 'draft_not_active');
       let completed;
       try {
-        completed = chooseCharacter(session.draft, actor.id, String(req.body.characterId || ''));
+        completed = chooseCharacter(
+          session.draft,
+          actor.id,
+          String(req.body.characterId || ''),
+          req.body.discardCharacterId ? String(req.body.discardCharacterId) : null
+        );
       } catch (error) {
         throw httpError(409, error.message);
       }
@@ -1719,7 +1838,11 @@ api.post('/session/:code/turn/blackmail', async (req, res, next) => {
         actor.gold -= amount;
         if (blackmailer) blackmailer.gold = Math.min(MAX_GOLD, blackmailer.gold + amount);
       } else if (response === 'risk') {
-        if (effects.blackmailRealCharacterId === current.characterId && blackmailer) {
+        if (
+          effects.blackmailRealCharacterId === current.characterId &&
+          blackmailer &&
+          blackmailer.id !== actor.id
+        ) {
           blackmailer.gold = Math.min(MAX_GOLD, blackmailer.gold + actor.gold);
           actor.gold = 0;
         }
@@ -1766,7 +1889,7 @@ function finalizeDistrictBuild(session, builder, currentCharacterId, card, paidC
   applyBuildTax(
     session,
     finalOwner,
-    confiscated ? finalOwner.characterId : currentCharacterId
+    confiscated ? 'magistrate' : currentCharacterId
   );
   updateCityCompletion(session, finalOwner);
   return { finalOwner, confiscated };
@@ -2146,7 +2269,7 @@ api.post('/session/:code/turn/ability', async (req, res, next) => {
         if (action.destructionUsed) throw httpError(409, 'ability_already_used');
         const found = findBuiltDistrict(session, String(req.body.cardId || ''));
         if (!found) throw httpError(404, 'district_not_found');
-        if (cityCompletionCount(found.owner) >= 7) throw httpError(409, 'completed_city_protected');
+        if (cityCompletionCount(found.owner) >= completionTarget(session.players.length)) throw httpError(409, 'completed_city_protected');
         if (isRankEightProtected(session, found.owner)) throw httpError(409, 'bishop_protected');
         if (found.district.id === 'keep') throw httpError(409, 'keep_protected');
         const destroyCost = districtDestructionCost(found.owner, found.district);
@@ -2164,7 +2287,7 @@ api.post('/session/:code/turn/ability', async (req, res, next) => {
         if (!ownFound || ownFound.owner.id !== actor.id || !targetFound || targetFound.owner.id === actor.id) {
           throw httpError(400, 'invalid_district_target');
         }
-        if (cityCompletionCount(targetFound.owner) >= 7) throw httpError(409, 'completed_city_protected');
+        if (cityCompletionCount(targetFound.owner) >= completionTarget(session.players.length)) throw httpError(409, 'completed_city_protected');
         if (isRankEightProtected(session, targetFound.owner)) throw httpError(409, 'bishop_protected');
 
         const actorOther = actor.built.filter((district) => district.cardId !== ownFound.district.cardId);
@@ -2187,7 +2310,7 @@ api.post('/session/:code/turn/ability', async (req, res, next) => {
         if (action.specialUsed) throw httpError(409, 'ability_already_used');
         const found = findBuiltDistrict(session, String(req.body.cardId || ''));
         if (!found || found.owner.id === actor.id) throw httpError(400, 'invalid_district_target');
-        if (cityCompletionCount(found.owner) >= 7) throw httpError(409, 'completed_city_protected');
+        if (cityCompletionCount(found.owner) >= completionTarget(session.players.length)) throw httpError(409, 'completed_city_protected');
         if (isRankEightProtected(session, found.owner)) throw httpError(409, 'bishop_protected');
         const cost = districtValue(found.district);
         if (cost > 3) throw httpError(409, 'marshal_cost_limit');
@@ -2309,10 +2432,7 @@ api.post('/session/:code/district', async (req, res, next) => {
         builtAtRound: session.round
       };
       target.built.push(district);
-      if (!session.firstCompletedPlayerId && target.built.length >= 7) {
-        session.firstCompletedPlayerId = target.id;
-        session.finalRound = true;
-      }
+      updateCityCompletion(session, target);
       await saveSession(session);
     });
     res.status(201).json({ ok: true });

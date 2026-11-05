@@ -21,7 +21,7 @@ const errors = {
   session_full: 'A szoba megtelt.',
   name_in_use: 'Ez a név már foglalt a szobában.',
   auth_failed: 'A helyi játékazonosító nem érvényes ehhez a szobához.',
-  supported_player_count: 'Ez a verzió 4–8 játékost támogat.',
+  supported_player_count: 'Ez a verzió 2–8 játékost támogat.',
   host_only: 'Ezt csak a házigazda teheti meg.',
   active_player_only: 'Ezt most csak az aktív játékos teheti meg.',
   not_current_drafter: 'Most nem te választasz karaktert.',
@@ -69,6 +69,9 @@ const errors = {
   unknown_unique_district: 'Ismeretlen egyedi kerület került a választásba.',
   character_selection_count: 'Minden ranghoz pontosan egy karaktert válassz.',
   invalid_character_selection: 'Egy ranghoz nem megfelelő karakter lett kiválasztva.',
+  emperor_not_allowed_two_players: 'A Császár 2 játékos esetén nem használható. Válassz Királyt vagy Patríciust a 4-es ranghoz.',
+  queen_not_allowed_under_five: 'A Királynő 5 játékos alatt nem használható. Három játékosnál a 9-es ranghoz Művészt vagy Adószedőt válassz.',
+  discard_character_required: 'Két játékosnál ezen a lépésen egy megtartott és egy külön eldobott karaktert is választanod kell.',
   district_cannot_be_built: 'Ezt a kerületet nem lehet megépíteni.',
   monument_too_late: 'Az Emlékmű már nem építhető, ha legalább öt kerületed van.',
   internal_error: 'Szerverhiba történt.'
@@ -153,15 +156,28 @@ function renderTopbar() {
 }
 
 function roleCard() {
-  const role = state?.me?.character || state?.draft?.myChoice;
-  if (!role) return '';
-  return `<section class="panel role-card"><div class="role-title"><span class="role-rank">${role.rank}</span><div><p class="eyebrow">A karaktered</p><h2>${escapeHtml(role.name)}</h2></div></div><p>${escapeHtml(role.short)}</p><p class="muted">${escapeHtml(role.detail)}</p></section>`;
+  const ownRoles = state?.me?.characters?.length
+    ? state.me.characters
+    : (state?.draft?.myChoices || []);
+  const activeRole = state?.turn?.activePlayerId === state?.me?.id
+    ? state.turn.character
+    : null;
+  const primary = activeRole || ownRoles[0];
+  if (!primary) return '';
+
+  const otherRoles = ownRoles.filter((role) => role.id !== primary.id);
+  const others = otherRoles.length
+    ? `<div class="meta"><span class="muted">Másik karaktered:</span>${otherRoles.map((role) =>
+        `<span class="badge">${role.rank}. ${escapeHtml(role.name)}</span>`).join('')}</div>`
+    : '';
+
+  return `<section class="panel role-card"><div class="role-title"><span class="role-rank">${primary.rank}</span><div><p class="eyebrow">${activeRole ? 'Aktív karaktered' : (ownRoles.length > 1 ? 'Karaktereid' : 'A karaktered')}</p><h2>${escapeHtml(primary.name)}</h2></div></div><p>${escapeHtml(primary.short)}</p><p class="muted">${escapeHtml(primary.detail)}</p>${others}</section>`;
 }
 
 function renderHome() {
   helpButton.classList.add('hidden');
   const code = requestedCode();
-  app.innerHTML = `<section class="hero"><div class="brand"><p class="eyebrow">Játékszoba</p><h1>Citadella</h1><p class="muted">Telefonos Citadella-asztal: titkos karakterválasztás, saját kerületkéz, arany, építés és kattintható karakterképességek.</p></div><div class="grid-2"><form id="create-form" class="panel stack"><h2>Új játék</h2><label>Név<input name="name" maxlength="32" autocomplete="name" required></label><button type="submit">Szoba létrehozása</button><p class="muted">4–8 játékos, ötjegyű szobakóddal.</p></form><form id="join-form" class="panel stack"><h2>Csatlakozás</h2><label>Név<input name="name" maxlength="32" autocomplete="name" required></label><label>Szobakód<input name="code" inputmode="numeric" pattern="[0-9]{5}" maxlength="5" value="${escapeHtml(code)}" required></label><button type="submit">Belépés</button></form></div></section>`;
+  app.innerHTML = `<section class="hero"><div class="brand"><p class="eyebrow">Játékszoba</p><h1>Citadella</h1><p class="muted">Telefonos Citadella-asztal: titkos karakterválasztás, saját kerületkéz, arany, építés és kattintható karakterképességek.</p></div><div class="grid-2"><form id="create-form" class="panel stack"><h2>Új játék</h2><label>Név<input name="name" maxlength="32" autocomplete="name" required></label><button type="submit">Szoba létrehozása</button><p class="muted">2–8 játékos, ötjegyű szobakóddal. 2–3 főnél mindenki két karakterrel játszik.</p></form><form id="join-form" class="panel stack"><h2>Csatlakozás</h2><label>Név<input name="name" maxlength="32" autocomplete="name" required></label><label>Szobakód<input name="code" inputmode="numeric" pattern="[0-9]{5}" maxlength="5" value="${escapeHtml(code)}" required></label><button type="submit">Belépés</button></form></div></section>`;
 }
 
 function botStrategyInfo(strategyId) {
@@ -201,7 +217,7 @@ function syncUniqueSelectionUi() {
   const saveButton = document.getElementById('save-unique-button');
   const startButton = document.getElementById('start-game-button');
   const notice = document.getElementById('unique-selection-notice');
-  const countOk = state.players.length >= 4 && state.players.length <= 8;
+  const countOk = state.players.length >= 2 && state.players.length <= 8;
   const selectionOk = count === 14;
 
   if (badge) {
@@ -236,16 +252,38 @@ function setUniqueSelection(ids) {
 function characterSelector() {
   const selected = state.selectedCharacterIds || [];
   const catalog = state.characterCatalog || [];
+  const playerCount = state.players.length;
+
   const rows = Array.from({ length: 9 }, (_, offset) => {
     const rank = offset + 1;
     const options = catalog
       .filter((character) => character.rank === rank)
+      .filter((character) => !(playerCount === 2 && rank === 4 && character.id === 'emperor'))
+      .filter((character) => !(playerCount === 3 && rank === 9 && character.id === 'queen'))
       .map((character) => `<option value="${character.id}" ${selected[offset] === character.id ? 'selected' : ''}>${escapeHtml(character.name)}</option>`)
       .join('');
-    const activeNote = rank === 9 ? '<span class="muted small-text">8 játékosnál kerül játékba</span>' : '';
+
+    let activeNote = '';
+    if (rank === 4 && playerCount === 2) {
+      activeNote = '<span class="muted small-text">Császár 2 főnél nem használható</span>';
+    } else if (rank === 9 && playerCount === 3) {
+      activeNote = '<span class="muted small-text">3 főnél kötelező · Királynő nem használható</span>';
+    } else if (rank === 9) {
+      activeNote = '<span class="muted small-text">3 vagy 8 játékosnál kerül biztosan játékba</span>';
+    }
+
     return `<label class="character-config-row"><span><strong>${rank}. rang</strong>${activeNote}</span><select name="characterId" data-rank="${rank}">${options}</select></label>`;
   }).join('');
-  return `<form id="character-config-form" class="stack"><div class="section-head"><div><p class="eyebrow">Karakterpakli</p><h3>Karakterek helyettesítése</h3></div><span class="badge">27 → 8/9</span></div><p class="muted">Minden ranghoz egy karakter tartozik. 4–7 játékosnál az 1–8. rang, 8 játékosnál az 1–9. rang kerül a pakliba.</p><div class="character-config-grid">${rows}</div><div class="actions"><button type="submit">Karakterkészlet mentése</button><button type="button" class="secondary" data-action="default-characters">Alapkarakterek</button></div></form>`;
+
+  const modeHelp = playerCount === 2
+    ? 'Két játékosnál az 1–8. rangot használjuk, és mindenki két karaktert választ. A Császár tiltott.'
+    : playerCount === 3
+      ? 'Három játékosnál az 1–9. rang mind játékban van, és mindenki két karaktert választ. A Királynő nem használható.'
+      : playerCount === 8
+        ? 'Nyolc játékosnál az 1–9. rang kerül játékba.'
+        : '4–7 játékosnál az app az 1–8. rangot használja.';
+
+  return `<form id="character-config-form" class="stack"><div class="section-head"><div><p class="eyebrow">Karakterpakli</p><h3>Karakterek helyettesítése</h3></div><span class="badge">27 → 8/9</span></div><p class="muted">${modeHelp}</p><div class="character-config-grid">${rows}</div><div class="actions"><button type="submit">Karakterkészlet mentése</button><button type="button" class="secondary" data-action="default-characters">Alapkarakterek</button></div></form>`;
 }
 
 function currentCharacterSelectionIds() {
@@ -266,7 +304,7 @@ function uniqueDistrictSelector() {
 
 function renderLobby() {
   helpButton.classList.remove('hidden');
-  const countOk = state.players.length >= 4 && state.players.length <= 8;
+  const countOk = state.players.length >= 2 && state.players.length <= 8;
   const uniqueOk = (state.selectedUniqueDistrictIds || []).length === 14;
   const maxBots = Math.max(0, 8 - Number(state.humanCount || 1));
   const botOptions = Array.from({ length: maxBots + 1 }, (_, count) =>
@@ -281,7 +319,7 @@ function renderLobby() {
 
   const startDisabled = !(countOk && uniqueOk);
   const startNotice = !countOk
-    ? '<p class="notice">Az induláshoz összesen 4–8 valós vagy szimulált játékos kell.</p>'
+    ? '<p class="notice">Az induláshoz összesen 2–8 valós vagy szimulált játékos kell.</p>'
     : (!uniqueOk ? '<p class="notice">Az induláshoz pontosan 14 egyedi kerület kell.</p>' : '');
 
   app.innerHTML = `${renderTopbar()}<div class="grid-2"><section class="panel stack"><div><h2>Játékosok (${state.players.length}/8)</h2><p class="muted">A sorrend az asztal körüli ülésrendet jelenti. A koronát annak add, aki először választ karaktert.</p></div><div class="lobby-list">${state.players.map(lobbyRow).join('')}</div>${state.isHost ? `<button id="start-game-button" data-action="start" ${startDisabled ? 'disabled' : ''}>Játék indítása</button>${startNotice}` : '<p class="muted">A házigazda indítja a játékot.</p>'}</section><section class="panel stack"><h2>Digitális kerületlapok</h2><p>Indításkor mindenki 4 titkos kerületlapot és 2 aranyat kap. A saját lapjaid csak a te telefonodon látszanak; a többieknél csak a kézben lévő lapok száma nyilvános.</p><p>A körödben az app vezeti a nyersanyagválasztást és a kézből történő építést.</p><p class="muted">A ? gomb alatt megtalálod a játék célját, a teljes menetet, a karaktereket és az egyedi kerületek hatását.</p></section></div>${hostSettings}`;
@@ -335,12 +373,35 @@ function renderDraft() {
   helpButton.classList.remove('hidden');
   const current = state.players.find((player) => player.id === state.draft.currentPlayerId);
   const myTurn = state.draft.currentPlayerId === state.me.id;
+  const selected = state.draft.myChoices || [];
+  const selectedBadges = selected.length
+    ? `<div class="face-up">${selected.map((role) => `<span class="badge good">${role.rank}. ${escapeHtml(role.name)}</span>`).join('')}</div>`
+    : '<span class="muted">Még nincs kiválasztott karaktered ebben a körben.</span>';
   const options = state.draft.options.map((role) => `<button class="character-option" data-action="choose-character" data-character="${role.id}"><strong>${role.rank}. ${escapeHtml(role.name)}</strong><small>${escapeHtml(role.short)}</small></button>`).join('');
   const faceUp = state.draft.faceUp.length
     ? state.draft.faceUp.map((role) => `<span class="badge">${role.rank}. ${escapeHtml(role.name)}</span>`).join('')
     : '<span class="muted">Nincs képpel felfelé félretett karakter.</span>';
 
-  app.innerHTML = `${renderTopbar()}${roleCard()}${botActionsPanel()}${handPanel()}<section class="panel stack"><div class="status-banner"><div><p class="eyebrow">Most választ</p><h2>${escapeHtml(current?.name || '—')}</h2></div><span class="badge">${state.draft.availableCount} lehetőség</span></div><div><p class="eyebrow">Nyíltan félretett karakterek</p><div class="face-up">${faceUp}</div></div>${myTurn ? `<div><p class="eyebrow">Válassz titokban egy karaktert</p><div class="draft-grid">${options}</div></div>` : `<p class="muted">Várj, amíg ${escapeHtml(current?.name || 'a következő játékos')} választ.</p>`}</section><div class="table-grid">${state.players.map(playerCard).join('')}</div>`;
+  let picker = '';
+  if (myTurn && state.draft.discardRequired) {
+    const keepOptions = state.draft.options.map((role, index) =>
+      `<option value="${role.id}" ${index === 0 ? 'selected' : ''}>${role.rank}. ${escapeHtml(role.name)}</option>`).join('');
+    const discardOptions = state.draft.options.map((role, index) =>
+      `<option value="${role.id}" ${index === 1 ? 'selected' : ''}>${role.rank}. ${escapeHtml(role.name)}</option>`).join('');
+    picker = `<div class="stack"><p class="eyebrow">Válassz egyet megtartásra és egy másikat eldobásra</p><div class="choice-grid"><label>Megtartom<select id="draft-keep-character">${keepOptions}</select></label><label>Képpel lefelé eldobom<select id="draft-discard-character">${discardOptions}</select></label></div><button data-action="choose-character-pair">Választás megerősítése</button><p class="muted">A két karakternek különbözőnek kell lennie. Az eldobott lapot az ellenfél nem látja.</p></div>`;
+  } else if (myTurn) {
+    picker = `<div><p class="eyebrow">Válassz titokban egy karaktert</p><div class="draft-grid">${options}</div></div>`;
+  } else {
+    picker = `<p class="muted">Várj, amíg ${escapeHtml(current?.name || 'a következő játékos')} választ.</p>`;
+  }
+
+  const lowPlayerHint = state.players.length <= 3
+    ? `<p class="muted">${state.players.length === 2
+        ? 'Kétfős szabály: mindenki két karaktert kap; az első koronás választás után a további lépéseknél egy karaktert megtartasz és egyet titkosan eldobsz.'
+        : 'Háromfős szabály: mindenki két karaktert kap. Az első három választás után az app véletlenszerűen félretesz egy lapot, majd következik a második választási kör.'}</p>`
+    : '';
+
+  app.innerHTML = `${renderTopbar()}${roleCard()}${botActionsPanel()}${handPanel()}<section class="panel stack"><div class="status-banner"><div><p class="eyebrow">Most választ</p><h2>${escapeHtml(current?.name || '—')}</h2></div><div class="meta"><span class="badge">${state.draft.availableCount} lehetőség</span><span class="badge">${state.draft.hiddenDiscardCount} titkosan félretéve</span></div></div>${lowPlayerHint}<div><p class="eyebrow">Saját kiválasztott karaktereid</p>${selectedBadges}</div><div><p class="eyebrow">Nyíltan félretett karakterek</p><div class="face-up">${faceUp}</div></div>${picker}</section><div class="table-grid">${state.players.map(playerCard).join('')}</div>`;
 }
 
 function districtChip(district) {
@@ -354,11 +415,12 @@ function districtChip(district) {
 
 function playerCard(player) {
   const active = state.turn?.activePlayerId === player.id;
-  const role = player.character ? `<span class="badge">${player.character.rank}. ${escapeHtml(player.character.name)}</span>` : '';
+  const roles = (player.characters || []).map((role) =>
+    `<span class="badge">${role.rank}. ${escapeHtml(role.name)}</span>`).join('');
   const bot = player.isBot
     ? `<span class="badge bot-badge">🤖 ${escapeHtml(botStrategyInfo(player.botStrategy).label)}</span>`
     : '';
-  return `<section class="panel player-card ${active ? 'active' : ''} ${player.id === state.me.id ? 'me' : ''}"><div class="player-head"><div><div class="player-name">${escapeHtml(player.name)}</div><div class="meta">${player.isCrowned ? '<span class="badge crown">♛</span>' : ''}${player.isHost ? '<span class="badge">host</span>' : ''}${bot}${role}</div></div><div class="meta"><span class="badge">${player.handCount} kézlap</span><span class="badge">${player.built.length} kerület</span></div></div><div class="gold-line">🪙 ${player.gold} arany</div><div class="districts">${player.built.map(districtChip).join('') || '<span class="muted">Még nincs megépített kerület.</span>'}</div></section>`;
+  return `<section class="panel player-card ${active ? 'active' : ''} ${player.id === state.me.id ? 'me' : ''}"><div class="player-head"><div><div class="player-name">${escapeHtml(player.name)}</div><div class="meta">${player.isCrowned ? '<span class="badge crown">♛</span>' : ''}${player.isHost ? '<span class="badge">host</span>' : ''}${bot}${roles}</div></div><div class="meta"><span class="badge">${player.handCount} kézlap</span><span class="badge">${player.built.length} kerület</span></div></div><div class="gold-line">🪙 ${player.gold} arany</div><div class="districts">${player.built.map(districtChip).join('') || '<span class="muted">Még nincs megépített kerület.</span>'}</div></section>`;
 }
 
 function resourcePanel() {
@@ -456,13 +518,17 @@ function localCharacterIncome(roleId) {
   return amount;
 }
 
+function uiCompletionTarget() {
+  return state.players.length <= 3 ? 8 : 7;
+}
+
 function warlordTargets() {
   const cards = [];
   for (const player of state.players) {
     const citySize = player.built.length + (player.built.some((district) => district.id === 'monument') ? 1 : 0);
     const hasGreatWall = player.built.some((district) => district.id === 'great-wall');
     for (const district of player.built) {
-      if (district.id === 'keep' || citySize >= 7) continue;
+      if (district.id === 'keep' || citySize >= uiCompletionTarget()) continue;
       const wallExtra = hasGreatWall && district.id !== 'great-wall' ? 1 : 0;
       const beautifiedExtra = district.beautified ? 1 : 0;
       const cost = Math.max(0, Number(district.cost || 0) - 1 + wallExtra + beautifiedExtra);
@@ -476,7 +542,7 @@ function marshalTargets() {
   const cards = [];
   for (const player of state.players.filter((item) => item.id !== state.me.id)) {
     const citySize = player.built.length + (player.built.some((district) => district.id === 'monument') ? 1 : 0);
-    if (citySize >= 7) continue;
+    if (citySize >= uiCompletionTarget()) continue;
     for (const district of player.built) {
       const value = Number(district.cost || 0) + (district.beautified ? 1 : 0);
       if (value > 3) continue;
@@ -741,28 +807,31 @@ function renderHelp() {
     <details class="rules-section" open>
       <summary>🎯 A játék célja és vége</summary>
       <div class="rules-body">
-        <p>A cél a legértékesebb középkori város felépítése. A játék abban a körben ér véget, amelyben egy város először eléri a 7 kerületet; a teljes aktuális kör még lefut.</p>
+        <p>A cél a legértékesebb középkori város felépítése. <strong>4–8 játékosnál 7, 2–3 játékosnál 8 kerület</strong> teszi befejezetté a várost; az aktuális teljes kör még lefut.</p>
         <p><strong>Pontozás:</strong> a felépített kerületek nyomtatott értéke, +3 pont ha mind az öt kerülettípusból van legalább egy, +4 pont az elsőként befejezett városnak, +2 pont minden más befejezett városnak, valamint az egyedi kerületek bónuszai. Az Emlékmű a város befejezésénél két kerületnek számít.</p>
       </div>
     </details>
     <details class="rules-section">
       <summary>🏗️ Előkészítés</summary>
       <div class="rules-body">
-        <p>Az alkalmazás 4–8 résztvevővel játszik; a hiányzó helyeket szimulált játékosok tölthetik ki. Minden játékos 4 titkos kerületlapot és 2 aranyat kap. Az 54 alapkerület mellé pontosan 14 egyedi kerület kerül a pakliba.</p>
+        <p>Az alkalmazás 2–8 résztvevővel játszik; a hiányzó helyeket szimulált játékosok tölthetik ki. Minden játékos 4 titkos kerületlapot és 2 aranyat kap. Az 54 alapkerület mellé pontosan 14 egyedi kerület kerül a pakliba.</p>
+        <p><strong>2–3 játékosnál minden játékos két karakterrel játszik ugyanabban a körben.</strong> A két karakter ugyanazt a várost, kézlapokat és aranykészletet használja, de mindegyik karakter képessége csak a saját karakterkörében használható.</p>
         <p>A koronás játékos kezdi a karakterválasztást. A sorrend az asztal körüli ülésrend, amit a lobbyban lehet beállítani.</p>
       </div>
     </details>
     <details class="rules-section">
       <summary>🎭 Karakterválasztási fázis</summary>
       <div class="rules-body">
-        <p>A játék előtt rangonként egy karakter választható a három lehetséges változat közül. 4–7 játékosnál az 1–8. rangú karakterek, 8 játékosnál a 9. rangú karakter is bekerül. A kiválasztott karakterpakliból a játékosszámtól függően bizonyos lapok nyíltan, egy lap pedig titkosan félrekerül. A 4-es rangú karakter nem kerülhet nyíltan félretett lapként az asztalra.</p>
-        <p>A koronás játékos választ először titokban, majd az ülésrend szerint következnek a többiek. Hét- és nyolcfős játékban az utolsó választó a megmaradt nyílt lehetőség és a kezdeti titkos félretett lap közül választhat.</p>
+        <p>A játék előtt rangonként egy karakter választható a három lehetséges változat közül. 2 játékosnál az 1–8. rang kerül játékba, és a <strong>Császár nem használható</strong>. 3 játékosnál az 1–9. rang mind játékban van, de a <strong>Királynő nem használható</strong>.</p>
+        <p><strong>Két játékos:</strong> egy karakter titkos félretételével indul a draft. A koronás játékos kiválasztja első karakterét; ezután felváltva minden választási lépésben egy karaktert megtartotok és egy másikat képpel lefelé eldobtok, amíg mindkettőtöknek két karaktere nem lesz.</p>
+        <p><strong>Három játékos:</strong> egy karakter titkos félretételével indul a draft. Először mindhárom játékos választ egy karaktert, majd az app véletlenszerűen eldob egyet az öt megmaradt lapból. Ezután ugyanebben a sorrendben mindenki választ egy második karaktert, az utolsó megmaradt lap pedig titkos dobás lesz.</p>
+        <p><strong>4–8 játékos:</strong> a megszokott karakterválasztási szabályok érvényesek; a 4-es rangú karakter nem kerülhet nyíltan félretett lapként az asztalra.</p>
       </div>
     </details>
     <details class="rules-section">
       <summary>🔄 A köröd menete</summary>
       <div class="rules-body">
-        <p>A karaktereket rang szerint, 1-től felfelé szólítják. Amikor a karaktered sorra kerül, felfeded és végrehajtod a körödet.</p>
+        <p>A karaktereket rang szerint, 1-től felfelé szólítják. Amikor a karaktered sorra kerül, felfeded és végrehajtod a körödet. 2–3 játékosnál ezért minden játékos kétszer cselekszik egy körben, egyszer-egyszer a két karakterével.</p>
         <ol>
           <li><strong>Nyersanyag:</strong> kötelezően választasz 2 aranyat, vagy húzol 2 kerületlapot és egyet megtartasz. Egyedi kerületek ezt módosíthatják, például az Aranybánya, Csillagvizsgáló vagy Könyvtár.</li>
           <li><strong>Karakterképesség:</strong> a karaktered képességét a megengedett időpontban, általában körönként egyszer használhatod.</li>
@@ -785,7 +854,7 @@ function renderHelp() {
     <details class="rules-section">
       <summary>🤖 Szimulált játékosok</summary>
       <div class="rules-body">
-        <p>A botok teljes játékoshelyet foglalnak: titokban karaktert választanak, nyersanyagot vesznek fel és automatikusan építenek. A céljuk egyszerű, szabályos játék, nem tökéletes stratégia. A botok ugyanúgy lehetnek Orgyilkos, Tolvaj, Király stb., és a korona is kerülhet hozzájuk.</p>
+        <p>A botok teljes játékoshelyet foglalnak: titokban karaktert választanak, nyersanyagot vesznek fel és automatikusan építenek. 2–3 játékosnál a bot is két karaktert választ és mindkettővel külön karakterkört játszik, ugyanazt a várost és kincstárat használva.</p>
       </div>
     </details>`;
 }
@@ -912,7 +981,9 @@ app.addEventListener('click', async (event) => {
       const form = document.getElementById('character-config-form');
       if (form) {
         [...form.querySelectorAll('select[name="characterId"]')].forEach((select, index) => {
-          select.value = state.defaultCharacterIds[index];
+          const desired = state.defaultCharacterIds[index];
+          const hasDesired = [...select.options].some((option) => option.value === desired);
+          select.value = hasDesired ? desired : (select.options[0]?.value || '');
         });
       }
     } else if (action === 'default-unique') {
@@ -961,6 +1032,16 @@ app.addEventListener('click', async (event) => {
     } else if (action === 'choose-character') {
       await post(`/session/${state.code}/draft/choose`, {
         characterId: button.dataset.character
+      });
+    } else if (action === 'choose-character-pair') {
+      const characterId = document.getElementById('draft-keep-character')?.value;
+      const discardCharacterId = document.getElementById('draft-discard-character')?.value;
+      if (!characterId || !discardCharacterId || characterId === discardCharacterId) {
+        throw Object.assign(new Error('discard_character_required'), { code: 'discard_character_required' });
+      }
+      await post(`/session/${state.code}/draft/choose`, {
+        characterId,
+        discardCharacterId
       });
     } else if (action === 'take-resource') {
       await post(`/session/${state.code}/turn/resource`, { mode: button.dataset.mode });

@@ -6,10 +6,13 @@ const {
   CHARACTERS,
   DEFAULT_CHARACTER_IDS,
   validateCharacterSelection,
+  validateCharactersForPlayerCount,
+  completionTarget,
   inUseCharacters,
   draftDiscardCounts,
   createDraft,
   draftOptions,
+  draftDiscardRequired,
   chooseCharacter,
   turnOrderFromChoices,
   scorePlayer
@@ -228,4 +231,125 @@ test('Emperor is never the initial face-down discard', () => {
     assert.notEqual(draft.faceDownId, 'emperor');
     assert.ok(draft.available.includes('emperor'));
   }
+});
+
+
+test('two-player mode uses ranks 1-8 and forbids the Emperor', () => {
+  assert.equal(inUseCharacters(2).length, 8);
+
+  const emperorSetup = [...DEFAULT_CHARACTER_IDS];
+  emperorSetup[3] = 'emperor';
+  assert.throws(
+    () => validateCharactersForPlayerCount(2, emperorSetup),
+    /emperor_not_allowed_two_players/
+  );
+});
+
+test('three-player mode uses all nine ranks and forbids the Queen', () => {
+  const setup = [...DEFAULT_CHARACTER_IDS];
+  setup[8] = 'artist';
+  assert.equal(inUseCharacters(3, setup).length, 9);
+  assert.equal(inUseCharacters(3, setup).at(-1).id, 'artist');
+
+  assert.throws(
+    () => validateCharactersForPlayerCount(3, DEFAULT_CHARACTER_IDS),
+    /queen_not_allowed_under_five/
+  );
+});
+
+test('two-player draft gives both players two characters with a hidden discard each later pick', () => {
+  const draft = createDraft(players(2), 'p0');
+  assert.equal(draft.mode, 'two-player');
+  assert.deepEqual(draft.order, ['p0', 'p1', 'p0', 'p1']);
+  assert.equal(draft.faceDownId !== null, true);
+  assert.equal(draftDiscardRequired(draft), false);
+
+  chooseCharacter(draft, 'p0', draftOptions(draft)[0]);
+  assert.equal(draft.choices.p0.length, 1);
+  assert.equal(draftDiscardRequired(draft), true);
+
+  for (const playerId of ['p1', 'p0']) {
+    const options = draftOptions(draft);
+    chooseCharacter(draft, playerId, options[0], options[1]);
+  }
+
+  const finalOptions = draftOptions(draft);
+  const completed = chooseCharacter(draft, 'p1', finalOptions[0], finalOptions[1]);
+  assert.equal(completed, true);
+  assert.equal(draft.choices.p0.length, 2);
+  assert.equal(draft.choices.p1.length, 2);
+  assert.equal(draft.discardedIds.length, 3);
+  assert.equal(draft.available.length, 0);
+});
+
+test('three-player draft gives everyone two characters and performs the two hidden discards', () => {
+  const setup = [...DEFAULT_CHARACTER_IDS];
+  setup[8] = 'artist';
+  const draft = createDraft(players(3), 'p0', setup);
+
+  assert.equal(draft.mode, 'three-player');
+  assert.deepEqual(draft.order, ['p0', 'p1', 'p2', 'p0', 'p1', 'p2']);
+
+  for (const playerId of ['p0', 'p1', 'p2']) {
+    chooseCharacter(draft, playerId, draftOptions(draft)[0]);
+  }
+  assert.equal(draft.discardedIds.length, 1);
+  assert.equal(draft.available.length, 4);
+
+  chooseCharacter(draft, 'p0', draftOptions(draft)[0]);
+  chooseCharacter(draft, 'p1', draftOptions(draft)[0]);
+  const completed = chooseCharacter(draft, 'p2', draftOptions(draft)[0]);
+
+  assert.equal(completed, true);
+  assert.equal(draft.finalDiscardId !== null, true);
+  assert.equal(draft.available.length, 0);
+  assert.deepEqual(
+    Object.values(draft.choices).map((choices) => choices.length),
+    [2, 2, 2]
+  );
+});
+
+test('turn order flattens two characters per player by character rank', () => {
+  const order = turnOrderFromChoices({
+    p1: ['warlord', 'thief'],
+    p2: ['merchant', 'assassin']
+  });
+  assert.deepEqual(
+    order.map((entry) => [entry.playerId, entry.characterId]),
+    [
+      ['p2', 'assassin'],
+      ['p1', 'thief'],
+      ['p2', 'merchant'],
+      ['p1', 'warlord']
+    ]
+  );
+});
+
+test('two and three player cities complete at eight districts, not seven', () => {
+  assert.equal(completionTarget(2), 8);
+  assert.equal(completionTarget(3), 8);
+  assert.equal(completionTarget(4), 7);
+
+  const sevenDistricts = {
+    id: 'p1',
+    gold: 0,
+    hand: [],
+    built: Array.from({ length: 7 }, (_, index) => ({
+      id: `d${index}`,
+      type: index % 2 ? 'trade' : 'noble',
+      cost: 1
+    }))
+  };
+  const twoPlayerSession = {
+    players: [{ id: 'p1' }, { id: 'p2' }],
+    firstCompletedPlayerId: 'p1',
+    crownPlayerId: 'p2'
+  };
+  assert.equal(scorePlayer(sevenDistricts, twoPlayerSession).completionBonus, 0);
+
+  const eightDistricts = {
+    ...sevenDistricts,
+    built: [...sevenDistricts.built, { id: 'd7', type: 'military', cost: 1 }]
+  };
+  assert.equal(scorePlayer(eightDistricts, twoPlayerSession).completionBonus, 4);
 });

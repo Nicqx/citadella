@@ -14,10 +14,16 @@ const {
   botCardScore,
   characterBuildLimit,
   applyBuildTax,
-  districtDestructionCost
+  districtDestructionCost,
+  runBots
 } = require('../server');
 const { DEFAULT_UNIQUE_DISTRICT_IDS } = require('../districts');
-const { DEFAULT_CHARACTER_IDS } = require('../game');
+const {
+  DEFAULT_CHARACTER_IDS,
+  createDraft,
+  draftOptions,
+  chooseCharacter
+} = require('../game');
 
 function makePlayer(id, name, seatIndex) {
   return {
@@ -28,6 +34,7 @@ function makePlayer(id, name, seatIndex) {
     gold: 2,
     built: [],
     hand: [],
+    characterIds: [],
     characterId: null,
     isBot: false
   };
@@ -53,6 +60,9 @@ function makeSession(players) {
       thiefPlayerId: null
     },
     roundFaceUpCharacterIds: [],
+    botActionLog: [],
+    botActionSeq: 0,
+    finalRevealedCharacterIds: [],
     firstCompletedPlayerId: null,
     finalRound: false,
     winnerPlayerId: null
@@ -353,4 +363,115 @@ test('military strategy recognizes an alternative rank-eight character', () => {
   ];
 
   assert.equal(botChooseCharacter(session, actor, ['scholar', 'marshal']), 'marshal');
+});
+
+
+test('stateView keeps two owned characters private and reveals them independently', () => {
+  const actor = makePlayer('p0', 'A', 0);
+  const other = makePlayer('p1', 'B', 1);
+  actor.characterIds = ['assassin', 'merchant'];
+  actor.characterId = 'assassin';
+  other.characterIds = ['thief', 'warlord'];
+  other.characterId = 'thief';
+
+  const session = makeSession([actor, other]);
+  session.phase = 'turns';
+  session.turn = {
+    order: [
+      { playerId: actor.id, characterId: 'assassin', rank: 1 },
+      { playerId: other.id, characterId: 'thief', rank: 2 },
+      { playerId: actor.id, characterId: 'merchant', rank: 6 },
+      { playerId: other.id, characterId: 'warlord', rank: 8 }
+    ],
+    index: 0,
+    revealedPlayerIds: [other.id],
+    revealedCharacterIds: ['thief'],
+    skippedPlayerIds: [],
+    action: {
+      playerId: actor.id,
+      resourceGathered: false,
+      builds: 0,
+      incomeUsed: false,
+      specialUsed: false,
+      destructionUsed: false,
+      districtUses: {},
+      pendingDraw: [],
+      specialDraw: [],
+      inspectedHand: [],
+      seerPendingPlayerIds: []
+    }
+  };
+
+  const view = stateView(session, actor, 1234);
+  assert.deepEqual(view.me.characters.map((role) => role.id), ['assassin', 'merchant']);
+
+  const otherView = view.players.find((player) => player.id === other.id);
+  assert.deepEqual(otherView.characters.map((role) => role.id), ['thief']);
+  assert.equal(otherView.characters.some((role) => role.id === 'warlord'), false);
+});
+
+test('three-player state exposes all nine configured characters', () => {
+  const players = [
+    makePlayer('p0', 'A', 0),
+    makePlayer('p1', 'B', 1),
+    makePlayer('p2', 'C', 2)
+  ];
+  const session = makeSession(players);
+  session.selectedCharacterIds = [
+    'assassin', 'thief', 'magician', 'king', 'bishop',
+    'merchant', 'architect', 'warlord', 'artist'
+  ];
+
+  const view = stateView(session, players[0], 1234);
+  assert.equal(view.characters.length, 9);
+  assert.equal(view.characters.at(-1).id, 'artist');
+});
+
+test('three-player Tax Collector still taxes that players other character', () => {
+  const players = [
+    makePlayer('p0', 'A', 0),
+    makePlayer('p1', 'B', 1),
+    makePlayer('p2', 'C', 2)
+  ];
+  const session = makeSession(players);
+  session.selectedCharacterIds = [
+    'assassin', 'thief', 'magician', 'king', 'bishop',
+    'merchant', 'architect', 'warlord', 'tax-collector'
+  ];
+  session.taxPool = 0;
+
+  const dualRolePlayer = players[0];
+  dualRolePlayer.characterIds = ['architect', 'tax-collector'];
+  dualRolePlayer.characterId = 'architect';
+  dualRolePlayer.gold = 3;
+
+  assert.equal(applyBuildTax(session, dualRolePlayer, 'architect'), 1);
+  assert.equal(dualRolePlayer.gold, 2);
+  assert.equal(session.taxPool, 1);
+
+  assert.equal(applyBuildTax(session, dualRolePlayer, 'tax-collector'), 0);
+  assert.equal(dualRolePlayer.gold, 2);
+  assert.equal(session.taxPool, 1);
+});
+
+
+test('two-player bot draft keeps one character and secretly discards another', () => {
+  const human = makePlayer('p0', 'A', 0);
+  const bot = { ...makePlayer('bot_1', 'Bot 1', 1), isBot: true, botStrategy: 'adaptive' };
+  const session = makeSession([human, bot]);
+  session.phase = 'draft';
+  session.round = 1;
+  session.selectedCharacterIds = [...DEFAULT_CHARACTER_IDS];
+  session.draft = createDraft(session.players, human.id, session.selectedCharacterIds);
+
+  chooseCharacter(session.draft, human.id, draftOptions(session.draft)[0]);
+  assert.equal(session.draft.order[session.draft.index], bot.id);
+  assert.equal(session.draft.discardedIds.length, 0);
+
+  runBots(session);
+
+  assert.equal(session.phase, 'draft');
+  assert.equal(session.draft.choices[bot.id].length, 1);
+  assert.equal(session.draft.discardedIds.length, 1);
+  assert.equal(session.draft.order[session.draft.index], human.id);
 });
