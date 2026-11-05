@@ -181,12 +181,21 @@ function validateCharacterSelection(value) {
   return ids;
 }
 
-function inUseCharacters(playerCount, selectedCharacterIds = DEFAULT_CHARACTER_IDS) {
-  if (playerCount < 4 || playerCount > 8) {
-    throw new Error('supported_player_count');
-  }
+function completionTarget(playerCount) {
+  return Number(playerCount || 0) > 0 && Number(playerCount) <= 3 ? 8 : 7;
+}
+
+function validateCharactersForPlayerCount(playerCount, selectedCharacterIds = DEFAULT_CHARACTER_IDS) {
   const selected = validateCharacterSelection(selectedCharacterIds);
-  const maxRank = playerCount === 8 ? 9 : 8;
+  if (playerCount < 2 || playerCount > 8) throw new Error('supported_player_count');
+  if (playerCount === 2 && selected[3] === 'emperor') throw new Error('emperor_not_allowed_two_players');
+  if (playerCount === 3 && selected[8] === 'queen') throw new Error('queen_not_allowed_under_five');
+  return selected;
+}
+
+function inUseCharacters(playerCount, selectedCharacterIds = DEFAULT_CHARACTER_IDS) {
+  const selected = validateCharactersForPlayerCount(playerCount, selectedCharacterIds);
+  const maxRank = playerCount === 3 || playerCount === 8 ? 9 : 8;
   return selected.slice(0, maxRank).map((id) => CHARACTER_MAP.get(id));
 }
 
@@ -204,21 +213,55 @@ function seatOrderFrom(players, firstPlayerId) {
   return [...ordered.slice(index), ...ordered.slice(0, index)].map((p) => p.id);
 }
 
-function createDraft(players, crownPlayerId, selectedCharacterIds = DEFAULT_CHARACTER_IDS) {
-  const playerCount = players.length;
-  const characters = inUseCharacters(playerCount, selectedCharacterIds);
-  const counts = draftDiscardCounts(playerCount);
-  let pool = shuffle(characters.map((c) => c.id));
-
+function initialFaceDown(pool) {
   let faceDownId = pool.shift();
   if (faceDownId === 'emperor' && pool.length) {
     const replacementIndex = crypto.randomInt(0, pool.length);
     faceDownId = pool[replacementIndex];
     pool.splice(replacementIndex, 1);
     pool.push('emperor');
-    pool = shuffle(pool);
+    const reshuffled = shuffle(pool);
+    pool.splice(0, pool.length, ...reshuffled);
+  }
+  return faceDownId;
+}
+
+function createDraft(players, crownPlayerId, selectedCharacterIds = DEFAULT_CHARACTER_IDS) {
+  const playerCount = players.length;
+  const characters = inUseCharacters(playerCount, selectedCharacterIds);
+  const seatOrder = seatOrderFrom(players, crownPlayerId);
+  let pool = shuffle(characters.map((character) => character.id));
+  const faceDownId = initialFaceDown(pool);
+
+  if (playerCount === 2) {
+    return {
+      mode: 'two-player',
+      order: [seatOrder[0], seatOrder[1], seatOrder[0], seatOrder[1]],
+      index: 0,
+      available: pool,
+      faceUpIds: [],
+      faceDownId,
+      discardedIds: [],
+      finalDiscardId: null,
+      choices: Object.fromEntries(seatOrder.map((playerId) => [playerId, []]))
+    };
   }
 
+  if (playerCount === 3) {
+    return {
+      mode: 'three-player',
+      order: [...seatOrder, ...seatOrder],
+      index: 0,
+      available: pool,
+      faceUpIds: [],
+      faceDownId,
+      discardedIds: [],
+      finalDiscardId: null,
+      choices: Object.fromEntries(seatOrder.map((playerId) => [playerId, []]))
+    };
+  }
+
+  const counts = draftDiscardCounts(playerCount);
   const faceUpIds = [];
   for (let i = 0; i < counts.faceUp; i += 1) {
     const eligible = pool.filter((id) => CHARACTER_MAP.get(id).rank !== 4);
@@ -228,17 +271,20 @@ function createDraft(players, crownPlayerId, selectedCharacterIds = DEFAULT_CHAR
   }
 
   return {
-    order: seatOrderFrom(players, crownPlayerId),
+    mode: 'standard',
+    order: seatOrder,
     index: 0,
     available: pool,
     faceUpIds,
     faceDownId,
+    discardedIds: [],
     finalDiscardId: null,
-    choices: {}
+    choices: Object.fromEntries(seatOrder.map((playerId) => [playerId, []]))
   };
 }
 
 function draftOptions(draft) {
+  if (draft.mode === 'two-player' || draft.mode === 'three-player') return [...draft.available];
   const isLast = draft.index === draft.order.length - 1;
   if (isLast && draft.order.length >= 7) {
     return [...draft.available, draft.faceDownId].filter(Boolean);
@@ -246,12 +292,55 @@ function draftOptions(draft) {
   return [...draft.available];
 }
 
-function chooseCharacter(draft, playerId, characterId) {
+function draftDiscardRequired(draft) {
+  return draft.mode === 'two-player' && draft.index > 0;
+}
+
+function chooseCharacter(draft, playerId, characterId, discardCharacterId = null) {
   if (draft.order[draft.index] !== playerId) throw new Error('not_current_drafter');
   const options = draftOptions(draft);
   if (!options.includes(characterId)) throw new Error('character_unavailable');
 
-  draft.choices[playerId] = characterId;
+  if (!Array.isArray(draft.choices[playerId])) draft.choices[playerId] = [];
+  draft.choices[playerId].push(characterId);
+
+  if (draft.mode === 'two-player') {
+    draft.available = draft.available.filter((id) => id !== characterId);
+
+    if (draftDiscardRequired(draft)) {
+      const discardId = String(discardCharacterId || '');
+      if (!draft.available.includes(discardId)) throw new Error('discard_character_required');
+      draft.available = draft.available.filter((id) => id !== discardId);
+      draft.discardedIds.push(discardId);
+    }
+
+    const isLast = draft.index === draft.order.length - 1;
+    if (isLast) return true;
+    draft.index += 1;
+    return false;
+  }
+
+  if (draft.mode === 'three-player') {
+    draft.available = draft.available.filter((id) => id !== characterId);
+
+    // Miután mindhárom játékos kiválasztotta az első karakterét,
+    // a harmadik játékos véletlenszerűen eldob egyet az öt megmaradt lapból.
+    if (draft.index === 2 && draft.available.length) {
+      const discardIndex = crypto.randomInt(0, draft.available.length);
+      const [discarded] = draft.available.splice(discardIndex, 1);
+      draft.discardedIds.push(discarded);
+    }
+
+    const isLast = draft.index === draft.order.length - 1;
+    if (isLast) {
+      draft.finalDiscardId = draft.available[0] || null;
+      draft.available = [];
+      return true;
+    }
+    draft.index += 1;
+    return false;
+  }
+
   const choseFaceDown = characterId === draft.faceDownId;
   if (choseFaceDown) draft.faceDownId = null;
   else draft.available = draft.available.filter((id) => id !== characterId);
@@ -269,7 +358,14 @@ function chooseCharacter(draft, playerId, characterId) {
 
 function turnOrderFromChoices(choices) {
   return Object.entries(choices)
-    .map(([playerId, characterId]) => ({ playerId, characterId, rank: CHARACTER_MAP.get(characterId).rank }))
+    .flatMap(([playerId, value]) => {
+      const characterIds = Array.isArray(value) ? value : [value];
+      return characterIds.filter(Boolean).map((characterId) => ({
+        playerId,
+        characterId,
+        rank: CHARACTER_MAP.get(characterId).rank
+      }));
+    })
     .sort((a, b) => a.rank - b.rank);
 }
 
@@ -282,7 +378,8 @@ function scorePlayer(player, session) {
   const citySize = built.length + (has('monument') ? 1 : 0);
 
   let completionBonus = 0;
-  if (citySize >= 7) {
+  const target = completionTarget(session.players?.length || session.playerCount || 0);
+  if (citySize >= target) {
     completionBonus = session.firstCompletedPlayerId === player.id ? 4 : 2;
   }
 
@@ -354,11 +451,14 @@ module.exports = {
   CHARACTER_MAP,
   DEFAULT_CHARACTER_IDS,
   validateCharacterSelection,
+  validateCharactersForPlayerCount,
+  completionTarget,
   inUseCharacters,
   draftDiscardCounts,
   seatOrderFrom,
   createDraft,
   draftOptions,
+  draftDiscardRequired,
   chooseCharacter,
   turnOrderFromChoices,
   scorePlayer
