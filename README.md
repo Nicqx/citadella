@@ -4,20 +4,22 @@ Mobilbarát, Redis-alapú Citadella játékszoba. Az alkalmazás kezeli a titkos
 
 ## Jelenlegi játékmód
 
-- 4–8 résztvevő; a valós játékosok mellé a lobbyban szimulált játékosok adhatók.
+- 2–8 résztvevő; a valós játékosok mellé a lobbyban szimulált játékosok adhatók.
 - Minden játékos 2 arannyal és 4 titkos kerületlappal indul.
 - A kerületpakli mindig 54 alap + pontosan 14 egyedi kerületből áll, a játékosszámtól függetlenül. Az egyedi kerületek a teljes, 30 lapos készletből választhatók ki indulás előtt; a lobbyban van alapkészlet-, véletlen 14- és kijelöléstörlés gyorsgomb, de menteni és játékot indítani csak pontosan 14 kijelölt lappal lehet.
 - A saját kéz csak a saját telefonon látható; más játékosok csak a kézlapok számát látják.
 - A kör elején az aktív játékos 2 aranyat választ, vagy 2 kerületlapból 1-et tart meg.
 - Építeni közvetlenül a saját kézben látható lapra kattintva lehet; az app levonja az aranyat és az asztalra teszi a kerületet.
 - A modern kiadás 27 karaktere mind elérhető: minden 1–9. ranghoz három lehetséges karakter tartozik, amelyek közül a házigazda rangonként egyet választ.
+- 2 főnél az 1–8. rang szerepel, minden játékos két karaktert kap; a Császár nem használható.
+- 3 főnél az 1–9. rang mind játékban van, minden játékos két karaktert kap; a Királynő nem használható.
 - 4–7 főnél a kiválasztott 1–8. rangú karakterek szerepelnek; 8 főnél a kiválasztott 9. rangú karakter is bekerül.
 - Az alternatív karakterek eltérő építési korlátai és interaktív képességei is részei a digitális körvezetésnek.
-- A kiválasztási fázis kezeli a nyílt/rejtett félretett karaktereket és a 7–8 játékosra vonatkozó utolsó választó szabályát.
-- A karaktered és a képességed a saját telefonodon végig látszik.
+- A kiválasztási fázis kezeli a hivatalos 2 fős „megtart + titkos dobás” draftot, a 3 fős kétkörös draftot, valamint a 4–8 fős nyílt/rejtett félretett karaktereket és a 7–8 játékosra vonatkozó utolsó választó szabályát.
+- A karaktered és a képességed a saját telefonodon végig látszik; 2–3 főnél a saját két karaktered látható, a többiek karakterei csak a felfedésük után válnak nyilvánossá.
 - A `?` gomb teljes játékmeneti segédletet mutat: cél, előkészítés, karakterválasztás, kör menete, pontozás, karakterek és az egyedi kerületek hatásai.
 - A közös asztal minden játékos aranyát, kézlapjainak számát és megépített kerületeit mutatja.
-- A pontozás teljesen automatikus: az app számolja a kerületek alapértékét, az öt típusért járó +3 pontot, a befejezési bónuszt és az egyedi kerületek játékvégi pontjait. A Kísértetvárosnál a legtöbb pontot adó szabályos típust választja.
+- A pontozás teljesen automatikus: az app számolja a kerületek alapértékét, az öt típusért járó +3 pontot, a befejezési bónuszt és az egyedi kerületek játékvégi pontjait. 2–3 főnél 8, 4–8 főnél 7 kerület számít befejezett városnak. A Kísértetvárosnál a legtöbb pontot adó szabályos típust választja.
 
 ## Interaktív karakterképességek
 
@@ -36,7 +38,7 @@ Az egyedi kerületek egyre nagyobb része automatizált. Többek közt a Gyár, 
 ## Szimulált játékosok
 
 - A házigazda a lobbyban 0–7 szimulált játékost állíthat be, úgy hogy a teljes létszám legfeljebb 8 legyen.
-- A botok titokban karaktert választanak, nyersanyagot gyűjtenek, karakterképességeket használnak és szabályosan építkeznek.
+- A botok titokban karaktert választanak, nyersanyagot gyűjtenek, karakterképességeket használnak és szabályosan építkeznek. 2–3 főnél a botok is két karaktert választanak és mindkettővel külön karakterkört játszanak.
 - Minden bothoz külön stratégia választható: alkalmazkodó, nemesi, egyházi, kereskedelmi, katonai vagy egyedi-kerület fókusz. A stratégia hat a karakterdraft-ra, a lapmegtartásra, az építési sorrendre és a Hadúr rombolására.
 - A katonai fókuszú bot agresszívan keresi a Hadurat és a rombolható ellenfél-kerületeket; az alkalmazkodó bot a saját aktuális kezére és városára reagál.
 - A botstratégia továbbra is könnyű, játékképes ellenfelet/pótlást céloz, nem tökéletes mesterséges intelligenciát.
