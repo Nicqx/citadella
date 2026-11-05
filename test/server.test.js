@@ -14,10 +14,16 @@ const {
   botCardScore,
   characterBuildLimit,
   applyBuildTax,
-  districtDestructionCost
+  districtDestructionCost,
+  runBots
 } = require('../server');
 const { DEFAULT_UNIQUE_DISTRICT_IDS } = require('../districts');
-const { DEFAULT_CHARACTER_IDS } = require('../game');
+const {
+  DEFAULT_CHARACTER_IDS,
+  createDraft,
+  draftOptions,
+  chooseCharacter
+} = require('../game');
 
 function makePlayer(id, name, seatIndex) {
   return {
@@ -443,4 +449,26 @@ test('three-player Tax Collector still taxes that players other character', () =
   assert.equal(applyBuildTax(session, dualRolePlayer, 'tax-collector'), 0);
   assert.equal(dualRolePlayer.gold, 2);
   assert.equal(session.taxPool, 1);
+});
+
+
+test('two-player bot draft keeps one character and secretly discards another', () => {
+  const human = makePlayer('p0', 'A', 0);
+  const bot = { ...makePlayer('bot_1', 'Bot 1', 1), isBot: true, botStrategy: 'adaptive' };
+  const session = makeSession([human, bot]);
+  session.phase = 'draft';
+  session.round = 1;
+  session.selectedCharacterIds = [...DEFAULT_CHARACTER_IDS];
+  session.draft = createDraft(session.players, human.id, session.selectedCharacterIds);
+
+  chooseCharacter(session.draft, human.id, draftOptions(session.draft)[0]);
+  assert.equal(session.draft.order[session.draft.index], bot.id);
+  assert.equal(session.draft.discardedIds.length, 0);
+
+  runBots(session);
+
+  assert.equal(session.phase, 'draft');
+  assert.equal(session.draft.choices[bot.id].length, 1);
+  assert.equal(session.draft.discardedIds.length, 1);
+  assert.equal(session.draft.order[session.draft.index], human.id);
 });
