@@ -352,3 +352,43 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   gap: 6px;
   padding: 8px 0;
 }
+
+
+.dual-role-card {
+  gap: 12px;
+}
+
+.owned-role-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.owned-role-chip {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-soft);
+}
+
+.owned-role-chip.active {
+  outline: 2px solid currentColor;
+}
+
+.owned-role-chip .role-rank {
+  flex: 0 0 auto;
+}
+
+.owned-role-chip strong,
+.owned-role-chip small {
+  display: block;
+}
+
+.owned-role-chip small {
+  margin-top: 4px;
+  opacity: 0.8;
+  line-height: 1.3;
+}
