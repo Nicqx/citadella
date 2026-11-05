@@ -763,6 +763,22 @@ function districtAbilityPanel() {
   return `<section class="panel stack ability-panel"><div><p class="eyebrow">Egyedi kerületek</p><h2>Használható hatások</h2></div><div class="district-ability-list">${blocks.join('')}</div></section>`;
 }
 
+function cityProgressPanel() {
+  if (state.phase !== 'turns') return '';
+  const target = state.cityCompletionTarget || (state.players.length <= 3 ? 8 : 7);
+  const cityProgress = state.players.map((player) => {
+    const count = Number(player.cityDistrictCount ?? player.built.length);
+    return `<span class="badge ${count >= target ? 'good' : ''}">${escapeHtml(player.name)}: ${count}/${target} kerület</span>`;
+  }).join('');
+
+  if (!state.finalRound) {
+    return `<section class="panel compact-panel city-progress"><strong>Városépítés</strong><div class="meta">${cityProgress}</div><p class="muted">A játék akkor lép az utolsó fordulóba, amikor valamelyik város eléri a ${target} kerületet.</p></section>`;
+  }
+
+  const remaining = Math.max(0, state.turn.total - state.turn.index);
+  return `<section class="panel stack final-round-banner" role="status"><div><p class="eyebrow">🏁 Utolsó forduló</p><h2>Elkészült az első ${target} kerületes város!</h2></div><p>A játék végét a ${state.round}. forduló lezárása jelenti. A hátralévő karakterköröket még végig kell játszani, utána automatikusan megjelenik az eredmény.</p><p class="muted">Még ${remaining} karakterkör van hátra, a jelenleg aktív karakterrel együtt.</p><div class="meta">${cityProgress}</div></section>`;
+}
+
 function renderTurns() {
   helpButton.classList.remove('hidden');
   const active = state.players.find((player) => player.id === state.turn.activePlayerId);
@@ -778,7 +794,10 @@ function renderTurns() {
     !turnAction.bewitchedVictim &&
     !emperorPending;
 
-  app.innerHTML = `${renderTopbar()}${roleCard()}${botActionsPanel()}${faceUpCharactersPanel()}${announcementsPanel()}<section class="panel status-banner"><div><p class="eyebrow">${state.finalRound ? 'Utolsó kör · ' : ''}${state.turn.index + 1}/${state.turn.total}</p><h2>${escapeHtml(active?.name || '—')} · ${state.turn.character.rank}. ${escapeHtml(state.turn.character.name)}</h2><p class="muted">${escapeHtml(state.turn.character.short)}</p></div>${selfActive ? `<button data-action="end-turn" ${canEnd ? '' : 'disabled'}>Kör vége</button>` : ''}</section>${resourcePanel()}${abilityPanel()}${districtAbilityPanel()}${handPanel({ build: true })}<div class="table-grid">${state.players.map(playerCard).join('')}</div>`;
+  const endLabel = state.finalRound && state.turn.index === state.turn.total - 1
+    ? 'Utolsó karakterkör lezárása'
+    : 'Karakterkör vége';
+  app.innerHTML = `${renderTopbar()}${roleCard()}${cityProgressPanel()}${botActionsPanel()}${faceUpCharactersPanel()}${announcementsPanel()}<section class="panel status-banner"><div><p class="eyebrow">${state.finalRound ? 'Utolsó forduló · ' : ''}${state.turn.index + 1}/${state.turn.total}</p><h2>${escapeHtml(active?.name || '—')} · ${state.turn.character.rank}. ${escapeHtml(state.turn.character.name)}</h2><p class="muted">${escapeHtml(state.turn.character.short)}</p></div>${selfActive ? `<button data-action="end-turn" ${canEnd ? '' : 'disabled'}>${endLabel}</button>` : ''}</section>${resourcePanel()}${abilityPanel()}${districtAbilityPanel()}${handPanel({ build: true })}<div class="table-grid">${state.players.map(playerCard).join('')}</div>`;
 }
 
 function renderFinished() {
