@@ -516,13 +516,17 @@ function localCharacterIncome(roleId) {
   return amount;
 }
 
+function uiCompletionTarget() {
+  return state.players.length <= 3 ? 8 : 7;
+}
+
 function warlordTargets() {
   const cards = [];
   for (const player of state.players) {
     const citySize = player.built.length + (player.built.some((district) => district.id === 'monument') ? 1 : 0);
     const hasGreatWall = player.built.some((district) => district.id === 'great-wall');
     for (const district of player.built) {
-      if (district.id === 'keep' || citySize >= 7) continue;
+      if (district.id === 'keep' || citySize >= uiCompletionTarget()) continue;
       const wallExtra = hasGreatWall && district.id !== 'great-wall' ? 1 : 0;
       const beautifiedExtra = district.beautified ? 1 : 0;
       const cost = Math.max(0, Number(district.cost || 0) - 1 + wallExtra + beautifiedExtra);
@@ -536,7 +540,7 @@ function marshalTargets() {
   const cards = [];
   for (const player of state.players.filter((item) => item.id !== state.me.id)) {
     const citySize = player.built.length + (player.built.some((district) => district.id === 'monument') ? 1 : 0);
-    if (citySize >= 7) continue;
+    if (citySize >= uiCompletionTarget()) continue;
     for (const district of player.built) {
       const value = Number(district.cost || 0) + (district.beautified ? 1 : 0);
       if (value > 3) continue;
