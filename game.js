@@ -301,15 +301,24 @@ function chooseCharacter(draft, playerId, characterId, discardCharacterId = null
   const options = draftOptions(draft);
   if (!options.includes(characterId)) throw new Error('character_unavailable');
 
+  let discardId = null;
+  if (draft.mode === 'two-player' && draftDiscardRequired(draft)) {
+    discardId = String(discardCharacterId || '');
+    if (
+      discardId === characterId ||
+      !options.includes(discardId)
+    ) {
+      throw new Error('discard_character_required');
+    }
+  }
+
   if (!Array.isArray(draft.choices[playerId])) draft.choices[playerId] = [];
   draft.choices[playerId].push(characterId);
 
   if (draft.mode === 'two-player') {
     draft.available = draft.available.filter((id) => id !== characterId);
 
-    if (draftDiscardRequired(draft)) {
-      const discardId = String(discardCharacterId || '');
-      if (!draft.available.includes(discardId)) throw new Error('discard_character_required');
+    if (discardId) {
       draft.available = draft.available.filter((id) => id !== discardId);
       draft.discardedIds.push(discardId);
     }
