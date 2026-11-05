@@ -8,6 +8,7 @@ const { app, setRedisClientForTests } = require('../server');
 function memoryRedis() {
   const values = new Map();
   return {
+    values,
     async get(key) { return values.has(key) ? values.get(key) : null; },
     async setEx(key, _ttlSeconds, value) { values.set(key, value); return 'OK'; },
     async ttl(key) { return values.has(key) ? 3600 : -2; },
@@ -18,13 +19,15 @@ function memoryRedis() {
 }
 
 async function startServer() {
-  setRedisClientForTests(memoryRedis());
+  const store = memoryRedis();
+  setRedisClientForTests(store);
   const server = await new Promise((resolve) => {
     const instance = app.listen(0, '127.0.0.1', () => resolve(instance));
   });
   const address = server.address();
   return {
     server,
+    store,
     baseUrl: `http://127.0.0.1:${address.port}/citadella/api`
   };
 }
@@ -115,4 +118,109 @@ test('HTTP E2E: one human + one bot receives two characters and four total chara
 
   const ownTurnEntries = turns.players.find((player) => player.id === auth.playerId);
   assert.equal(ownTurnEntries.characterCount, 2);
+});
+
+
+test('HTTP E2E: the eighth district starts the final round and the last character turn finishes the game', async (t) => {
+  const { server, baseUrl, store } = await startServer();
+  t.after(() => new Promise((resolve, reject) => {
+    server.close((error) => error ? reject(error) : resolve());
+  }));
+
+  const created = await jsonRequest(baseUrl, '/session', {
+    method: 'POST', body: { hostName: 'Two-player endgame test' }
+  });
+  const auth = { playerId: created.playerId, token: created.token };
+  const route = `/session/${created.code}`;
+
+  await jsonRequest(baseUrl, `${route}/bots`, {
+    method: 'POST', auth, body: { count: 1 }
+  });
+  await jsonRequest(baseUrl, `${route}/start`, { method: 'POST', auth });
+
+  let draft = await jsonRequest(baseUrl, `${route}/state`, { auth });
+  await jsonRequest(baseUrl, `${route}/draft/choose`, {
+    method: 'POST', auth, body: { characterId: draft.draft.options[0].id }
+  });
+  draft = await jsonRequest(baseUrl, `${route}/state`, { auth });
+  await jsonRequest(baseUrl, `${route}/draft/choose`, {
+    method: 'POST', auth,
+    body: {
+      characterId: draft.draft.options[0].id,
+      discardCharacterId: draft.draft.options[1].id
+    }
+  });
+
+  let state = await jsonRequest(baseUrl, `${route}/state`, { auth });
+  assert.equal(state.phase, 'turns');
+  assert.equal(state.players.length, 2);
+  assert.equal(state.finalRound, false);
+  assert.equal(state.turn.total, 4);
+
+  // Seed seven districts via the host's public admin endpoint. The eighth
+  // will be built via the *normal hand-card building endpoint*.
+  for (let districtNumber = 1; districtNumber <= 7; districtNumber += 1) {
+    await jsonRequest(baseUrl, `${route}/district`, {
+      method: 'POST', auth,
+      body: {
+        name: `Regression district ${districtNumber}`,
+        type: 'trade', cost: 1, playerId: auth.playerId
+      }
+    });
+  }
+
+  state = await jsonRequest(baseUrl, `${route}/state`, { auth });
+  assert.equal(state.me.built.length, 7);
+  assert.equal(state.finalRound, false);
+  assert.equal(state.firstCompletedPlayerId, null);
+
+  // Resource selection is required before ordinary card building.
+  await jsonRequest(baseUrl, `${route}/turn/resource`, {
+    method: 'POST', auth, body: { mode: 'gold' }
+  });
+  // This fixture adds a known affordable ordinary district card directly
+  // to the isolated in-memory Redis session, without changing game rules.
+  const key = `citadella:session:${created.code}`;
+  const persisted = JSON.parse(store.values.get(key));
+  const builder = persisted.players.find((player) => player.id === auth.playerId);
+  const eighthCard = {
+    cardId: 'e2e_eighth_normal_card',
+    id: 'watchtower',
+    name: 'Őrtorony',
+    type: 'military',
+    cost: 1
+  };
+  builder.hand.push(eighthCard);
+  builder.gold = 10;
+  store.values.set(key, JSON.stringify(persisted));
+
+  await jsonRequest(baseUrl, `${route}/turn/build`, {
+    method: 'POST', auth, body: { cardId: eighthCard.cardId }
+  });
+
+  state = await jsonRequest(baseUrl, `${route}/state`, { auth });
+  assert.equal(state.me.built.length, 8);
+  assert.equal(state.finalRound, true);
+  assert.equal(state.firstCompletedPlayerId, auth.playerId);
+  assert.equal(state.phase, 'turns', 'remaining character turns must still be played');
+
+  // All bot character turns are played automatically. End each human
+  // character turn, then assert that NO subsequent draft is started.
+  for (let guard = 0; guard < 5 && state.phase === 'turns'; guard += 1) {
+    assert.equal(state.turn.activePlayerId, auth.playerId);
+    if (!state.turn.action.resourceGathered) {
+      await jsonRequest(baseUrl, `${route}/turn/resource`, {
+        method: 'POST', auth, body: { mode: 'gold' }
+      });
+    }
+    await jsonRequest(baseUrl, `${route}/turn/end`, {
+      method: 'POST', auth
+    });
+    state = await jsonRequest(baseUrl, `${route}/state`, { auth });
+  }
+
+  assert.equal(state.phase, 'finished', 'the game must end at the end of the current round');
+  assert.equal(state.round, 1, 'the game must not start another round after eighth district');
+  assert.equal(state.winnerPlayerId, auth.playerId);
+  assert.equal(state.scores.find((score) => score.playerId === auth.playerId).completionBonus, 4);
 });
