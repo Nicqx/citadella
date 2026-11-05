@@ -384,9 +384,11 @@ function renderDraft() {
 
   let picker = '';
   if (myTurn && state.draft.discardRequired) {
-    const selectOptions = state.draft.options.map((role) =>
-      `<option value="${role.id}">${role.rank}. ${escapeHtml(role.name)}</option>`).join('');
-    picker = `<div class="stack"><p class="eyebrow">Válassz egyet megtartásra és egy másikat eldobásra</p><div class="choice-grid"><label>Megtartom<select id="draft-keep-character">${selectOptions}</select></label><label>Képpel lefelé eldobom<select id="draft-discard-character">${selectOptions}</select></label></div><button data-action="choose-character-pair">Választás megerősítése</button><p class="muted">A két karakternek különbözőnek kell lennie. Az eldobott lapot az ellenfél nem látja.</p></div>`;
+    const keepOptions = state.draft.options.map((role, index) =>
+      `<option value="${role.id}" ${index === 0 ? 'selected' : ''}>${role.rank}. ${escapeHtml(role.name)}</option>`).join('');
+    const discardOptions = state.draft.options.map((role, index) =>
+      `<option value="${role.id}" ${index === 1 ? 'selected' : ''}>${role.rank}. ${escapeHtml(role.name)}</option>`).join('');
+    picker = `<div class="stack"><p class="eyebrow">Válassz egyet megtartásra és egy másikat eldobásra</p><div class="choice-grid"><label>Megtartom<select id="draft-keep-character">${keepOptions}</select></label><label>Képpel lefelé eldobom<select id="draft-discard-character">${discardOptions}</select></label></div><button data-action="choose-character-pair">Választás megerősítése</button><p class="muted">A két karakternek különbözőnek kell lennie. Az eldobott lapot az ellenfél nem látja.</p></div>`;
   } else if (myTurn) {
     picker = `<div><p class="eyebrow">Válassz titokban egy karaktert</p><div class="draft-grid">${options}</div></div>`;
   } else {
