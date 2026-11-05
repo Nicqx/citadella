@@ -8,6 +8,7 @@ const { app, setRedisClientForTests } = require('../server');
 function memoryRedis() {
   const values = new Map();
   return {
+    values,
     async get(key) { return values.has(key) ? values.get(key) : null; },
     async setEx(key, _ttlSeconds, value) { values.set(key, value); return 'OK'; },
     async ttl(key) { return values.has(key) ? 3600 : -2; },
@@ -18,13 +19,15 @@ function memoryRedis() {
 }
 
 async function startServer() {
-  setRedisClientForTests(memoryRedis());
+  const store = memoryRedis();
+  setRedisClientForTests(store);
   const server = await new Promise((resolve) => {
     const instance = app.listen(0, '127.0.0.1', () => resolve(instance));
   });
   const address = server.address();
   return {
     server,
+    store,
     baseUrl: `http://127.0.0.1:${address.port}/citadella/api`
   };
 }
@@ -119,7 +122,7 @@ test('HTTP E2E: one human + one bot receives two characters and four total chara
 
 
 test('HTTP E2E: the eighth district starts the final round and the last character turn finishes the game', async (t) => {
-  const { server, baseUrl } = await startServer();
+  const { server, baseUrl, store } = await startServer();
   t.after(() => new Promise((resolve, reject) => {
     server.close((error) => error ? reject(error) : resolve());
   }));
@@ -154,8 +157,8 @@ test('HTTP E2E: the eighth district starts the final round and the last characte
   assert.equal(state.finalRound, false);
   assert.equal(state.turn.total, 4);
 
-  // The manual-district HTTP action uses updateCityCompletion, just as real
-  // hand-card builds, so this isolates the 7->8 threshold and round finish.
+  // Seed seven districts via the host's public admin endpoint. The eighth
+  // will be built via the *normal hand-card building endpoint*.
   for (let districtNumber = 1; districtNumber <= 7; districtNumber += 1) {
     await jsonRequest(baseUrl, `${route}/district`, {
       method: 'POST', auth,
@@ -171,12 +174,28 @@ test('HTTP E2E: the eighth district starts the final round and the last characte
   assert.equal(state.finalRound, false);
   assert.equal(state.firstCompletedPlayerId, null);
 
-  await jsonRequest(baseUrl, `${route}/district`, {
-    method: 'POST', auth,
-    body: {
-      name: 'Eighth regression district',
-      type: 'trade', cost: 1, playerId: auth.playerId
-    }
+  // Resource selection is required before ordinary card building.
+  await jsonRequest(baseUrl, `${route}/turn/resource`, {
+    method: 'POST', auth, body: { mode: 'gold' }
+  });
+  // This fixture adds a known affordable ordinary district card directly
+  // to the isolated in-memory Redis session, without changing game rules.
+  const key = `citadella:session:${created.code}`;
+  const persisted = JSON.parse(store.values.get(key));
+  const builder = persisted.players.find((player) => player.id === auth.playerId);
+  const eighthCard = {
+    cardId: 'e2e_eighth_normal_card',
+    id: 'watchtower',
+    name: 'Őrtorony',
+    type: 'military',
+    cost: 1
+  };
+  builder.hand.push(eighthCard);
+  builder.gold = 10;
+  store.values.set(key, JSON.stringify(persisted));
+
+  await jsonRequest(baseUrl, `${route}/turn/build`, {
+    method: 'POST', auth, body: { cardId: eighthCard.cardId }
   });
 
   state = await jsonRequest(baseUrl, `${route}/state`, { auth });
