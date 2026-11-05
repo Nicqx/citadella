@@ -60,6 +60,9 @@ function makeSession(players) {
       thiefPlayerId: null
     },
     roundFaceUpCharacterIds: [],
+    botActionLog: [],
+    botActionSeq: 0,
+    finalRevealedCharacterIds: [],
     firstCompletedPlayerId: null,
     finalRound: false,
     winnerPlayerId: null
