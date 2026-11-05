@@ -162,16 +162,27 @@ function roleCard() {
   const activeRole = state?.turn?.activePlayerId === state?.me?.id
     ? state.turn.character
     : null;
-  const primary = activeRole || ownRoles[0];
-  if (!primary) return '';
+  const lowPlayerMode = (state?.players?.length || 0) <= 3;
 
+  if (!ownRoles.length && !activeRole) return '';
+
+  if (lowPlayerMode) {
+    const expected = 2;
+    const roles = ownRoles.map((role) => {
+      const active = activeRole?.id === role.id;
+      return `<div class="owned-role-chip ${active ? 'active' : ''}"><span class="role-rank">${role.rank}</span><div><strong>${escapeHtml(role.name)}</strong><small>${active ? 'most aktív' : escapeHtml(role.short)}</small></div></div>`;
+    }).join('');
+    return `<section class="panel role-card dual-role-card"><div class="section-head"><div><p class="eyebrow">Karaktereid</p><h2>${ownRoles.length}/${expected} karakter</h2></div><span class="badge ${ownRoles.length === expected ? 'good' : ''}">${ownRoles.length}/${expected}</span></div><div class="owned-role-grid">${roles || '<span class="muted">Még nincs kiválasztott karaktered.</span>'}</div>${activeRole ? `<p class="muted"><strong>Aktív:</strong> ${escapeHtml(activeRole.name)} · ${escapeHtml(activeRole.detail)}</p>` : ''}</section>`;
+  }
+
+  const primary = activeRole || ownRoles[0];
   const otherRoles = ownRoles.filter((role) => role.id !== primary.id);
   const others = otherRoles.length
     ? `<div class="meta"><span class="muted">Másik karaktered:</span>${otherRoles.map((role) =>
         `<span class="badge">${role.rank}. ${escapeHtml(role.name)}</span>`).join('')}</div>`
     : '';
 
-  return `<section class="panel role-card"><div class="role-title"><span class="role-rank">${primary.rank}</span><div><p class="eyebrow">${activeRole ? 'Aktív karaktered' : (ownRoles.length > 1 ? 'Karaktereid' : 'A karaktered')}</p><h2>${escapeHtml(primary.name)}</h2></div></div><p>${escapeHtml(primary.short)}</p><p class="muted">${escapeHtml(primary.detail)}</p>${others}</section>`;
+  return `<section class="panel role-card"><div class="role-title"><span class="role-rank">${primary.rank}</span><div><p class="eyebrow">${activeRole ? 'Aktív karaktered' : 'A karaktered'}</p><h2>${escapeHtml(primary.name)}</h2></div></div><p>${escapeHtml(primary.short)}</p><p class="muted">${escapeHtml(primary.detail)}</p>${others}</section>`;
 }
 
 function renderHome() {
@@ -401,7 +412,7 @@ function renderDraft() {
         : 'Háromfős szabály: mindenki két karaktert kap. Az első három választás után az app véletlenszerűen félretesz egy lapot, majd következik a második választási kör.'}</p>`
     : '';
 
-  app.innerHTML = `${renderTopbar()}${roleCard()}${botActionsPanel()}${handPanel()}<section class="panel stack"><div class="status-banner"><div><p class="eyebrow">Most választ</p><h2>${escapeHtml(current?.name || '—')}</h2></div><div class="meta"><span class="badge">${state.draft.availableCount} lehetőség</span><span class="badge">${state.draft.hiddenDiscardCount} titkosan félretéve</span></div></div>${lowPlayerHint}<div><p class="eyebrow">Saját kiválasztott karaktereid</p>${selectedBadges}</div><div><p class="eyebrow">Nyíltan félretett karakterek</p><div class="face-up">${faceUp}</div></div>${picker}</section><div class="table-grid">${state.players.map(playerCard).join('')}</div>`;
+  app.innerHTML = `${renderTopbar()}${roleCard()}${botActionsPanel()}${handPanel()}<section class="panel stack"><div class="status-banner"><div><p class="eyebrow">Most választ</p><h2>${escapeHtml(current?.name || '—')}</h2></div><div class="meta"><span class="badge">${state.draft.availableCount} lehetőség</span><span class="badge">${state.draft.hiddenDiscardCount} titkosan félretéve</span></div></div>${lowPlayerHint}<div><p class="eyebrow">Saját kiválasztott karaktereid <strong>(${selected.length}/2)</strong></p>${selectedBadges}</div><div><p class="eyebrow">Nyíltan félretett karakterek</p><div class="face-up">${faceUp}</div></div>${picker}</section><div class="table-grid">${state.players.map(playerCard).join('')}</div>`;
 }
 
 function districtChip(district) {
@@ -420,7 +431,7 @@ function playerCard(player) {
   const bot = player.isBot
     ? `<span class="badge bot-badge">🤖 ${escapeHtml(botStrategyInfo(player.botStrategy).label)}</span>`
     : '';
-  return `<section class="panel player-card ${active ? 'active' : ''} ${player.id === state.me.id ? 'me' : ''}"><div class="player-head"><div><div class="player-name">${escapeHtml(player.name)}</div><div class="meta">${player.isCrowned ? '<span class="badge crown">♛</span>' : ''}${player.isHost ? '<span class="badge">host</span>' : ''}${bot}${roles}</div></div><div class="meta"><span class="badge">${player.handCount} kézlap</span><span class="badge">${player.built.length} kerület</span></div></div><div class="gold-line">🪙 ${player.gold} arany</div><div class="districts">${player.built.map(districtChip).join('') || '<span class="muted">Még nincs megépített kerület.</span>'}</div></section>`;
+  return `<section class="panel player-card ${active ? 'active' : ''} ${player.id === state.me.id ? 'me' : ''}"><div class="player-head"><div><div class="player-name">${escapeHtml(player.name)}</div><div class="meta">${player.isCrowned ? '<span class="badge crown">♛</span>' : ''}${player.isHost ? '<span class="badge">host</span>' : ''}${bot}${roles}</div></div><div class="meta"><span class="badge">${player.handCount} kézlap</span><span class="badge">${player.built.length} kerület</span>${state.players.length <= 3 ? `<span class="badge ${player.characterCount === 2 ? 'good' : ''}">${player.characterCount || 0}/2 karakter</span>` : ''}</div></div><div class="gold-line">🪙 ${player.gold} arany</div><div class="districts">${player.built.map(districtChip).join('') || '<span class="muted">Még nincs megépített kerület.</span>'}</div></section>`;
 }
 
 function resourcePanel() {

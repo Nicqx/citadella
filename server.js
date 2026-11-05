@@ -89,10 +89,15 @@ function normalizeBotStrategy(value) {
 
 const app = express();
 const api = express.Router();
-const redis = createClient({ url: REDIS_URL });
+let redis = createClient({ url: REDIS_URL });
 const locks = new Map();
 
 redis.on('error', (err) => console.error('[redis] error:', err));
+
+function setRedisClientForTests(client) {
+  if (require.main === module) throw new Error('test_redis_override_not_allowed');
+  redis = client;
+}
 app.disable('x-powered-by');
 app.use(express.json({ limit: '64kb' }));
 app.use((req, res, next) => {
@@ -2532,6 +2537,8 @@ if (require.main === module) {
 }
 
 module.exports = {
+  app,
+  setRedisClientForTests,
   stateView,
   initializePlayerForGame,
   setupDistrictDeck,
