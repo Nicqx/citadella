@@ -801,28 +801,31 @@ function renderHelp() {
     <details class="rules-section" open>
       <summary>🎯 A játék célja és vége</summary>
       <div class="rules-body">
-        <p>A cél a legértékesebb középkori város felépítése. A játék abban a körben ér véget, amelyben egy város először eléri a 7 kerületet; a teljes aktuális kör még lefut.</p>
+        <p>A cél a legértékesebb középkori város felépítése. <strong>4–8 játékosnál 7, 2–3 játékosnál 8 kerület</strong> teszi befejezetté a várost; az aktuális teljes kör még lefut.</p>
         <p><strong>Pontozás:</strong> a felépített kerületek nyomtatott értéke, +3 pont ha mind az öt kerülettípusból van legalább egy, +4 pont az elsőként befejezett városnak, +2 pont minden más befejezett városnak, valamint az egyedi kerületek bónuszai. Az Emlékmű a város befejezésénél két kerületnek számít.</p>
       </div>
     </details>
     <details class="rules-section">
       <summary>🏗️ Előkészítés</summary>
       <div class="rules-body">
-        <p>Az alkalmazás 4–8 résztvevővel játszik; a hiányzó helyeket szimulált játékosok tölthetik ki. Minden játékos 4 titkos kerületlapot és 2 aranyat kap. Az 54 alapkerület mellé pontosan 14 egyedi kerület kerül a pakliba.</p>
+        <p>Az alkalmazás 2–8 résztvevővel játszik; a hiányzó helyeket szimulált játékosok tölthetik ki. Minden játékos 4 titkos kerületlapot és 2 aranyat kap. Az 54 alapkerület mellé pontosan 14 egyedi kerület kerül a pakliba.</p>
+        <p><strong>2–3 játékosnál minden játékos két karakterrel játszik ugyanabban a körben.</strong> A két karakter ugyanazt a várost, kézlapokat és aranykészletet használja, de mindegyik karakter képessége csak a saját karakterkörében használható.</p>
         <p>A koronás játékos kezdi a karakterválasztást. A sorrend az asztal körüli ülésrend, amit a lobbyban lehet beállítani.</p>
       </div>
     </details>
     <details class="rules-section">
       <summary>🎭 Karakterválasztási fázis</summary>
       <div class="rules-body">
-        <p>A játék előtt rangonként egy karakter választható a három lehetséges változat közül. 4–7 játékosnál az 1–8. rangú karakterek, 8 játékosnál a 9. rangú karakter is bekerül. A kiválasztott karakterpakliból a játékosszámtól függően bizonyos lapok nyíltan, egy lap pedig titkosan félrekerül. A 4-es rangú karakter nem kerülhet nyíltan félretett lapként az asztalra.</p>
-        <p>A koronás játékos választ először titokban, majd az ülésrend szerint következnek a többiek. Hét- és nyolcfős játékban az utolsó választó a megmaradt nyílt lehetőség és a kezdeti titkos félretett lap közül választhat.</p>
+        <p>A játék előtt rangonként egy karakter választható a három lehetséges változat közül. 2 játékosnál az 1–8. rang kerül játékba, és a <strong>Császár nem használható</strong>. 3 játékosnál az 1–9. rang mind játékban van, de a <strong>Királynő nem használható</strong>.</p>
+        <p><strong>Két játékos:</strong> egy karakter titkos félretételével indul a draft. A koronás játékos kiválasztja első karakterét; ezután felváltva minden választási lépésben egy karaktert megtartotok és egy másikat képpel lefelé eldobtok, amíg mindkettőtöknek két karaktere nem lesz.</p>
+        <p><strong>Három játékos:</strong> egy karakter titkos félretételével indul a draft. Először mindhárom játékos választ egy karaktert, majd az app véletlenszerűen eldob egyet az öt megmaradt lapból. Ezután ugyanebben a sorrendben mindenki választ egy második karaktert, az utolsó megmaradt lap pedig titkos dobás lesz.</p>
+        <p><strong>4–8 játékos:</strong> a megszokott karakterválasztási szabályok érvényesek; a 4-es rangú karakter nem kerülhet nyíltan félretett lapként az asztalra.</p>
       </div>
     </details>
     <details class="rules-section">
       <summary>🔄 A köröd menete</summary>
       <div class="rules-body">
-        <p>A karaktereket rang szerint, 1-től felfelé szólítják. Amikor a karaktered sorra kerül, felfeded és végrehajtod a körödet.</p>
+        <p>A karaktereket rang szerint, 1-től felfelé szólítják. Amikor a karaktered sorra kerül, felfeded és végrehajtod a körödet. 2–3 játékosnál ezért minden játékos kétszer cselekszik egy körben, egyszer-egyszer a két karakterével.</p>
         <ol>
           <li><strong>Nyersanyag:</strong> kötelezően választasz 2 aranyat, vagy húzol 2 kerületlapot és egyet megtartasz. Egyedi kerületek ezt módosíthatják, például az Aranybánya, Csillagvizsgáló vagy Könyvtár.</li>
           <li><strong>Karakterképesség:</strong> a karaktered képességét a megengedett időpontban, általában körönként egyszer használhatod.</li>
@@ -845,7 +848,7 @@ function renderHelp() {
     <details class="rules-section">
       <summary>🤖 Szimulált játékosok</summary>
       <div class="rules-body">
-        <p>A botok teljes játékoshelyet foglalnak: titokban karaktert választanak, nyersanyagot vesznek fel és automatikusan építenek. A céljuk egyszerű, szabályos játék, nem tökéletes stratégia. A botok ugyanúgy lehetnek Orgyilkos, Tolvaj, Király stb., és a korona is kerülhet hozzájuk.</p>
+        <p>A botok teljes játékoshelyet foglalnak: titokban karaktert választanak, nyersanyagot vesznek fel és automatikusan építenek. 2–3 játékosnál a bot is két karaktert választ és mindkettővel külön karakterkört játszik, ugyanazt a várost és kincstárat használva.</p>
       </div>
     </details>`;
 }
@@ -972,7 +975,9 @@ app.addEventListener('click', async (event) => {
       const form = document.getElementById('character-config-form');
       if (form) {
         [...form.querySelectorAll('select[name="characterId"]')].forEach((select, index) => {
-          select.value = state.defaultCharacterIds[index];
+          const desired = state.defaultCharacterIds[index];
+          const hasDesired = [...select.options].some((option) => option.value === desired);
+          select.value = hasDesired ? desired : (select.options[0]?.value || '');
         });
       }
     } else if (action === 'default-unique') {
