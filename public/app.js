@@ -30,6 +30,11 @@ const errors = {
   invalid_bot_strategy: 'Ismeretlen botstratégia.',
   game_not_active: 'A játék még nem fut.',
   turn_not_active: 'Nincs aktív kör.',
+  theater_not_active: 'A Színház karaktercseréje most nem aktív.',
+  invalid_theater_exchange: 'Érvénytelen Színház-karaktercsere.',
+  invalid_payment_mode: 'Ez a különleges építési fizetési mód nem használható.',
+  invalid_payment_cards: 'Érvénytelen kézlapos fizetés.',
+  framework_required: 'Az Állványzat nincs megépítve a városodban.',
   resource_required: 'Előbb válassz: 2 arany vagy kerületlap-húzás.',
   resource_already_gathered: 'Ebben a körben már választottál nyersanyagot.',
   draw_choice_required: 'Előbb válaszd ki, melyik húzott kerületlapot tartod meg.',
@@ -413,6 +418,23 @@ function renderDraft() {
     : '';
 
   app.innerHTML = `${renderTopbar()}${roleCard()}${botActionsPanel()}${handPanel()}<section class="panel stack"><div class="status-banner"><div><p class="eyebrow">Most választ</p><h2>${escapeHtml(current?.name || '—')}</h2></div><div class="meta"><span class="badge">${state.draft.availableCount} lehetőség</span><span class="badge">${state.draft.hiddenDiscardCount} titkosan félretéve</span></div></div>${lowPlayerHint}<div><p class="eyebrow">Saját kiválasztott karaktereid <strong>(${selected.length}/2)</strong></p>${selectedBadges}</div><div><p class="eyebrow">Nyíltan félretett karakterek</p><div class="face-up">${faceUp}</div></div>${picker}</section><div class="table-grid">${state.players.map(playerCard).join('')}</div>`;
+}
+
+
+function renderTheater() {
+  helpButton.classList.remove('hidden');
+  const pendingId = state.theater?.currentPlayerId;
+  const acting = state.players.find((player) => player.id === pendingId);
+  const myTurn = pendingId === state.me.id;
+  const choices = state.theater?.myChoices || [];
+  const targets = state.players.filter((player) => player.id !== state.me.id)
+    .map((player) => `<option value="${player.id}">${escapeHtml(player.name)}</option>`).join('');
+  const ownOptions = choices.map((role) =>
+    `<option value="${role.id}">${role.rank}. ${escapeHtml(role.name)}</option>`).join('');
+  const actionPanel = myTurn
+    ? `<p class="muted">A Színház hatása választható. Jelöld ki, melyik saját karakteredet adod át, és melyik játékossal cserélnél. Az ő karaktere véletlenszerűen kerül kiválasztásra, és a csere titkos marad.</p><div class="choice-grid"><label>Saját átadandó karakter<select id="theater-own-role">${ownOptions}</select></label><label>Másik játékos<select id="theater-target-player">${targets}</select></label></div><div class="actions"><button data-action="theater-swap">Titkos karaktercsere</button><button class="secondary" data-action="theater-skip">Nem cserélek</button></div>`
+    : `<p class="muted">${escapeHtml(acting?.name || 'Egy játékos')} dönthet a Színház titkos karaktercseréjéről. A karakterek csak a szokásos körsorrendben fedődnek fel.</p>`;
+  app.innerHTML = `${renderTopbar()}${roleCard()}${botActionsPanel()}<section class="panel stack"><div><p class="eyebrow">Színház · titkos fázis</p><h2>Karaktercsere a választás után</h2></div>${actionPanel}</section><div class="table-grid">${state.players.map(playerCard).join('')}</div>`;
 }
 
 function districtChip(district) {
@@ -824,6 +846,7 @@ function render() {
   renderHelp();
   if (state.phase === 'lobby') renderLobby();
   else if (state.phase === 'draft') renderDraft();
+  else if (state.phase === 'theater') renderTheater();
   else if (state.phase === 'turns') renderTurns();
   else if (state.phase === 'finished') renderFinished();
 }
@@ -1074,6 +1097,14 @@ app.addEventListener('click', async (event) => {
       await post(`/session/${state.code}/draft/choose`, {
         characterId,
         discardCharacterId
+      });
+    } else if (action === 'theater-skip') {
+      await post(`/session/${state.code}/theater/choose`, { action: 'skip' });
+    } else if (action === 'theater-swap') {
+      await post(`/session/${state.code}/theater/choose`, {
+        action: 'swap',
+        characterId: document.getElementById('theater-own-role')?.value,
+        targetPlayerId: document.getElementById('theater-target-player')?.value
       });
     } else if (action === 'take-resource') {
       await post(`/session/${state.code}/turn/resource`, { mode: button.dataset.mode });
