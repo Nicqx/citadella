@@ -73,8 +73,17 @@ npm run test:e2e:browser
 ```
 
 A HTTP és böngészős E2E saját, memóriaalapú tesztadatbázist használ, nem a NUC Redisét.
-**Fontos:** 5 egyedi kerület speciális hatásának teljes szerveroldali működése még hiányzik
-(Fegyvertár, Állványzat, Temető, Színház, Tolvajtanya); a tesztek ezt 5 látható TODO-ként jelzik.
+A korábban hiányzó öt egyedi kerület speciális hatása is működik és
+önálló HTTP E2E-szcenáriókkal tesztelt:
+
+- **Fegyvertár:** az aktív játékos feláldozza, hogy kerületet pusztítson el (befejezett várost nem célozhat).
+- **Állványzat:** 0 aranyért építhetsz kerületet a saját Állványzatod feláldozásával; az így épült kerületet nem kobozhatja el a Magisztrátus.
+- **Temető:** felépítheted egy másik saját kerületed feláldozásával, az arany helyett.
+- **Színház:** a draft után titkos, opcionális karaktercsere; két- és háromfős játékban az átadandó saját karaktert te választod, az ellenfél karaktere véletlenszerű.
+- **Tolvajtanya:** a költség részben vagy egészben kézlapokkal is fedezhető (1 lap = 1 arany); a Magisztrátus csak a valóban kifizetett aranyat téríti vissza.
+
+A botok a Színház választható, vak cseréjét egyelőre kihagyják.
+A részletes E2E-szcenáriók és kivételek a fenti QA-dokumentációban találhatók.
 
 ## K3s frissítés
 

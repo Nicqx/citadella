@@ -234,6 +234,7 @@ function ensureSessionFields(session) {
   }
   if (!Number.isInteger(session.taxPool)) session.taxPool = Number(session.taxPool || 0);
   if (!Array.isArray(session.finalRevealedCharacterIds)) session.finalRevealedCharacterIds = [];
+  if (!session.theater || !Array.isArray(session.theater.order)) session.theater = null;
   ensureRoundEffects(session);
   return session;
 }
@@ -471,7 +472,11 @@ function stateView(session, actor, ttlSeconds) {
       action: turnActionView(session, actor)
     } : null,
     scores,
-    winnerPlayerId: session.winnerPlayerId || null
+    winnerPlayerId: session.winnerPlayerId || null,
+    theater: session.phase === 'theater' && session.theater ? {
+      currentPlayerId: session.theater.order[session.theater.index],
+      myChoices: (session.draft?.choices[actor.id] || []).map(characterPublic).filter(Boolean)
+    } : null
   };
 }
 
@@ -498,13 +503,43 @@ function prepareDraft(session) {
   session.roundFaceUpCharacterIds = [];
   session.draft = createDraft(sortedPlayers(session), session.crownPlayerId, session.selectedCharacterIds);
   session.turn = null;
+  session.theater = null;
   session.phase = 'draft';
   session.roundEffects = {};
   ensureRoundEffects(session);
 }
 
+// The Theater is an optional, private exchange after *all* drafts and before
+// characters are called. It must not reveal the chosen target character.
+function afterDraft(session) {
+  const owners = sortedPlayers(session).filter((player) => hasDistrict(player, 'theater'));
+  if (!owners.length) {
+    beginTurns(session);
+    return;
+  }
+  session.phase = 'theater';
+  session.theater = { order: owners.map((owner) => owner.id), index: 0 };
+}
+
+function advanceTheater(session) {
+  session.theater.index += 1;
+  if (session.theater.index >= session.theater.order.length) beginTurns(session);
+}
+
+function exchangeTheaterCharacter(session, actor, target, ownCharacterId) {
+  const own = session.draft.choices[actor.id];
+  const theirs = session.draft.choices[target.id];
+  const ownIndex = own.indexOf(ownCharacterId);
+  if (ownIndex < 0 || !theirs?.length) throw httpError(400, 'invalid_theater_exchange');
+  // Only the acting player chooses which of their own roles to exchange.
+  // The opponent's card is drawn randomly, including in 2/3-player games.
+  const randomIndex = crypto.randomInt(0, theirs.length);
+  [own[ownIndex], theirs[randomIndex]] = [theirs[randomIndex], own[ownIndex]];
+}
+
 function beginTurns(session) {
   session.roundFaceUpCharacterIds = [...session.draft.faceUpIds];
+  session.theater = null;
   for (const [playerId, selected] of Object.entries(session.draft.choices)) {
     const player = getPlayer(session, playerId);
     if (!player) continue;
@@ -860,6 +895,19 @@ function findBuiltDistrict(session, districtCardId) {
     if (index >= 0) return { owner, index, district: owner.built[index] };
   }
   return null;
+}
+
+function discardBuiltDistrict(session, owner, cardId) {
+  const index = owner.built.findIndex((district) => district.cardId === cardId);
+  if (index < 0) throw httpError(404, 'district_not_found');
+  const [discarded] = owner.built.splice(index, 1);
+  // A destroyed Museum loses its stored cards as well. Keep the same behavior
+  // for district-power destruction and sacrificial construction.
+  if (discarded.id === 'museum' && Array.isArray(discarded.storedCards)) {
+    putOnDeckBottom(session, discarded.storedCards);
+  }
+  putOnDeckBottom(session, [discarded]);
+  return discarded;
 }
 
 function cityCompletionCount(player) {
@@ -1493,7 +1541,17 @@ function runBots(session) {
         ['Titokban, a beállított stratégiája alapján karaktert választott.'],
         'draft'
       );
-      if (completed) beginTurns(session);
+      if (completed) afterDraft(session);
+      continue;
+    }
+
+    if (session.phase === 'theater' && session.theater) {
+      const currentId = session.theater.order[session.theater.index];
+      const player = getPlayer(session, currentId);
+      if (!player?.isBot) break;
+      // Theater use is optional: bots may decline a blind swap.
+      addBotAction(session, player, null, ['Nem élt a Színház titkos karaktercseréjével.'], 'draft');
+      advanceTheater(session);
       continue;
     }
 
@@ -1736,6 +1794,7 @@ api.post('/session/:code/start', async (req, res, next) => {
       }
       session.taxPool = 0;
       session.finalRevealedCharacterIds = [];
+      session.theater = null;
 
       session.round = 1;
       session.botActionLog = [];
@@ -1770,10 +1829,35 @@ api.post('/session/:code/draft/choose', async (req, res, next) => {
       } catch (error) {
         throw httpError(409, error.message);
       }
-      if (completed) beginTurns(session);
+      if (completed) afterDraft(session);
       runBots(session);
       await saveSession(session);
     });
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+api.post('/session/:code/theater/choose', async (req, res, next) => {
+  try {
+    await withLock(req.params.code, async () => {
+      const session = requireSession(await loadSession(req.params.code));
+      const actor = authPlayer(session, req);
+      if (session.phase !== 'theater' || !session.theater) throw httpError(409, 'theater_not_active');
+      if (session.theater.order[session.theater.index] !== actor.id) throw httpError(403, 'active_player_only');
+
+      const action = String(req.body.action || '');
+      if (action === 'swap') {
+        const target = getPlayer(session, String(req.body.targetPlayerId || ''));
+        if (!target || target.id === actor.id) throw httpError(400, 'invalid_player_target');
+        exchangeTheaterCharacter(session, actor, target, String(req.body.characterId || ''));
+      } else if (action !== 'skip') {
+        throw httpError(400, 'invalid_theater_exchange');
+      }
+      advanceTheater(session);
+      runBots(session);
+      await saveSession(session);
+    });
+    // Do not expose which secret role was drawn from the target's hand.
     res.json({ ok: true });
   } catch (err) { next(err); }
 });
@@ -1934,13 +2018,52 @@ api.post('/session/:code/turn/build', async (req, res, next) => {
       }
 
       const cost = effectiveBuildCost(actor, card);
-      if (actor.gold < cost) throw httpError(409, 'not_enough_gold');
+      const paymentMode = String(req.body.paymentMode || 'gold');
+      const paymentIds = Array.isArray(req.body.paymentCardIds) ? req.body.paymentCardIds.map(String) : [];
+      let goldPaid = cost;
+      let sacrificeCardId = null;
+      let paymentCards = [];
 
-      actor.gold -= cost;
+      if (paymentMode === 'framework') {
+        if (paymentIds.length) throw httpError(400, 'invalid_payment_mode');
+        const framework = actor.built.find((district) => district.id === 'framework');
+        if (!framework) throw httpError(409, 'framework_required');
+        sacrificeCardId = framework.cardId;
+        goldPaid = 0;
+      } else if (paymentMode === 'sacrifice') {
+        if (paymentIds.length || card.id !== 'necropolis') throw httpError(400, 'invalid_payment_mode');
+        sacrificeCardId = String(req.body.sacrificeCardId || '');
+        if (!actor.built.some((district) => district.cardId === sacrificeCardId)) {
+          throw httpError(404, 'district_not_found');
+        }
+        goldPaid = 0;
+      } else if (paymentMode === 'gold') {
+        if (paymentIds.length) {
+          if (card.id !== 'thieves-den' || new Set(paymentIds).size !== paymentIds.length ||
+            paymentIds.includes(cardId) || paymentIds.length > cost) {
+            throw httpError(400, 'invalid_payment_cards');
+          }
+          paymentCards = paymentIds.map((idValue) => actor.hand.find((handCard) => handCard.cardId === idValue));
+          if (paymentCards.some((handCard) => !handCard)) throw httpError(404, 'district_not_in_hand');
+          goldPaid = cost - paymentCards.length;
+        }
+      } else {
+        throw httpError(400, 'invalid_payment_mode');
+      }
+      if (actor.gold < goldPaid) throw httpError(409, 'not_enough_gold');
+
+      // Validate all inputs above before changing the session. A zero-gold
+      // construction via sacrifice cannot be confiscated by the Magistrate.
+      actor.gold -= goldPaid;
+      if (sacrificeCardId) discardBuiltDistrict(session, actor, sacrificeCardId);
       actor.hand.splice(cardIndex, 1);
+      if (paymentCards.length) {
+        actor.hand = actor.hand.filter((handCard) => !paymentIds.includes(handCard.cardId));
+        putOnDeckBottom(session, paymentCards);
+      }
       actor.built.push({ ...card, beautified: false, builtAtRound: session.round });
       if (buildConsumesLimit(current.characterId, card)) action.builds += 1;
-      finalizeDistrictBuild(session, actor, current.characterId, actor.built[actor.built.length - 1], cost, action);
+      finalizeDistrictBuild(session, actor, current.characterId, actor.built[actor.built.length - 1], goldPaid, action);
 
       await saveSession(session);
     });
@@ -2380,12 +2503,31 @@ api.post('/session/:code/turn/district-ability', async (req, res, next) => {
       requireActiveActor(session, actor);
       const action = activeAction(session);
       if (!action.resourceGathered) throw httpError(409, 'resource_required');
-      if (action.pendingDraw?.length) throw httpError(409, 'draw_choice_required');
+      requireNoPendingTurnChoice(action);
       if (!action.districtUses || typeof action.districtUses !== 'object') action.districtUses = {};
 
       const districtId = String(req.body.districtId || '');
 
-      if (districtId === 'laboratory') {
+      if (districtId === 'armory') {
+        const armory = actor.built.find((district) => district.id === 'armory');
+        if (!armory) throw httpError(409, 'district_ability_unavailable');
+        if (action.districtUses.armory) throw httpError(409, 'district_ability_already_used');
+
+        const target = findBuiltDistrict(session, String(req.body.targetCardId || ''));
+        if (!target || target.district.cardId === armory.cardId) {
+          throw httpError(400, 'invalid_district_target');
+        }
+        const threshold = completionTarget(session.players.length);
+        // The rulebook forbids destroying districts in a completed city,
+        // including sacrificing the Armory from such a city.
+        if (cityCompletionCount(actor) >= threshold ||
+          cityCompletionCount(target.owner) >= threshold) {
+          throw httpError(409, 'completed_city_protected');
+        }
+        discardBuiltDistrict(session, actor, armory.cardId);
+        discardBuiltDistrict(session, target.owner, target.district.cardId);
+        action.districtUses.armory = true;
+      } else if (districtId === 'laboratory') {
         if (!hasDistrict(actor, 'laboratory')) throw httpError(409, 'district_ability_unavailable');
         if (action.districtUses.laboratory) throw httpError(409, 'district_ability_already_used');
 

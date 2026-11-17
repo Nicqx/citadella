@@ -56,6 +56,7 @@ async function main() {
     page.origin = rig.origin;
     const errors = [];
     page.on('pageerror', (error) => errors.push(error.message));
+    page.on('dialog', (dialog) => dialog.accept());
 
     await room(page, 'Browser E2E two-player', 1);
     assert.equal(await page.locator('#character-config-form select[data-rank="4"] option[value="emperor"]').count(), 0,
@@ -81,10 +82,79 @@ async function main() {
     await draftHumanFirst(page);
     await page.locator('#draft-keep-character').waitFor({ state: 'visible' });
     assert.match(await page.locator('#app').innerText(), /1\/2/);
+
+    // Install a Theater in the isolated fixture just before the final draft
+    // choice. The completed draft must enter the private swap step, NOT turns.
+    const theaterCode = page.url().split('/').filter(Boolean).at(-1);
+    const theaterKey = 'citadella:session:' + theaterCode;
+    const draftWithTheater = JSON.parse(rig.store.values.get(theaterKey));
+    draftWithTheater.players[0].built.push({
+      cardId: 'browser_theater', id: 'theater', name: 'Színház',
+      type: 'unique', cost: 6, beautified: false
+    });
+    rig.store.values.set(theaterKey, JSON.stringify(draftWithTheater));
+
     await page.locator('button[data-action="choose-character-pair"]').click();
+    await page.locator('button[data-action="theater-swap"]').waitFor({ state: 'visible' });
+    assert.equal(await page.locator('#theater-own-role option').count(), 2);
+    await page.locator('button[data-action="theater-swap"]').click();
+    await page.locator('.city-progress').waitFor({ state: 'visible' });
+    console.log('PASS: Chromium mobile Theater optional blind swap before first turn');
     await page.waitForFunction(() => document.querySelectorAll('.owned-role-chip').length === 2);
     assert.equal(await page.locator('.owned-role-chip').count(), 2);
     assert.ok((await page.locator('#app').innerText()).includes('2/2 karakter'));
+
+    // Render all special building controls, then make real HTTP requests via
+    // UI buttons against the isolated in-memory session.
+    const specialCode = page.url().split('/').filter(Boolean).at(-1);
+    const specialKey = 'citadella:session:' + specialCode;
+    const special = JSON.parse(rig.store.values.get(specialKey));
+    const specialOwner = special.players[0];
+    const activeHumanIndex = special.turn.order.findIndex((entry) =>
+      entry.playerId === specialOwner.id);
+    assert.ok(activeHumanIndex >= 0);
+    special.turn.index = activeHumanIndex;
+    const activeHuman = special.turn.order[activeHumanIndex];
+    if (activeHuman.characterId === 'navigator') activeHuman.characterId = 'architect';
+    special.turn.action = {
+      playerId: specialOwner.id, resourceGathered: true, builds: 0,
+      incomeUsed: false, specialUsed: false, destructionUsed: false,
+      districtUses: {}, pendingDraw: [], specialDraw: [],
+      seerPendingPlayerIds: [], blackmailPending: false
+    };
+    specialOwner.built = [
+      { cardId: 'browser_framework', id: 'framework', name: 'Állványzat', type: 'unique', cost: 3 },
+      { cardId: 'browser_armory', id: 'armory', name: 'Fegyvertár', type: 'unique', cost: 3 },
+      { cardId: 'browser_tavern', id: 'tavern', name: 'Kocsma', type: 'trade', cost: 1 }
+    ];
+    specialOwner.hand = [
+      { cardId: 'browser_palace', id: 'palace', name: 'Palota', type: 'noble', cost: 5 },
+      { cardId: 'browser_necropolis', id: 'necropolis', name: 'Temető', type: 'unique', cost: 5 },
+      { cardId: 'browser_thieves', id: 'thieves-den', name: 'Tolvajtanya', type: 'unique', cost: 6 },
+      ...Array.from({ length: 6 }, (_v, i) => ({
+        cardId: 'browser_pay_' + i, id: 'pay_' + i,
+        name: 'Fizetőlap ' + i, type: 'trade', cost: 1
+      }))
+    ];
+    specialOwner.gold = 0;
+    rig.store.values.set(specialKey, JSON.stringify(special));
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.locator('button[data-action="build-framework"][data-card="browser_palace"]').waitFor();
+    assert.equal(await page.locator('button[data-action="build-necropolis-sacrifice"]').count(), 1);
+    assert.equal(await page.locator('button[data-action="build-thieves-den"]').count(), 1);
+    assert.equal(await page.locator('button[data-action="use-armory"]').count(), 1);
+    await page.locator('button[data-action="build-framework"][data-card="browser_palace"]').click();
+    await page.waitForFunction(() => document.querySelectorAll('.district .name').length > 0);
+    const afterFramework = JSON.parse(rig.store.values.get(specialKey));
+    assert.ok(afterFramework.players[0].built.some((d) => d.id === 'palace'));
+    assert.ok(!afterFramework.players[0].built.some((d) => d.id === 'framework'));
+
+    await page.locator('#armory-target').selectOption('browser_tavern');
+    await page.locator('button[data-action="use-armory"]').click();
+    await page.waitForFunction(() => !document.querySelector('button[data-action="use-armory"]'));
+    const afterArmory = JSON.parse(rig.store.values.get(specialKey));
+    assert.ok(!afterArmory.players[0].built.some((d) => d.id === 'armory'));
+    assert.ok(!afterArmory.players[0].built.some((d) => d.cardId === 'browser_tavern'));
 
     // Verify the actual browser reacts when server declares the final round.
     const code = page.url().split('/').filter(Boolean).at(-1);
