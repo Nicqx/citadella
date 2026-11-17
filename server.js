@@ -1330,8 +1330,10 @@ function botUseMarshal(session, actor, action, notes) {
     if (owner.id === actor.id || cityCompletionCount(owner) >= completionTarget(session.players.length) || isRankEightProtected(session, owner)) continue;
     for (let index = 0; index < owner.built.length; index += 1) {
       const district = owner.built[index];
-      const cost = districtValue(district);
-      if (cost > 3 || cost > actor.gold || !canBuildDuplicate(actor, district)) continue;
+      const districtCost = districtValue(district);
+      const wallSurcharge = hasDistrict(owner, 'great-wall') && district.id !== 'great-wall' ? 1 : 0;
+      const cost = districtCost + wallSurcharge;
+      if (districtCost > 3 || cost > actor.gold || !canBuildDuplicate(actor, district)) continue;
       candidates.push({ owner, district, index, cost, score: botCardScore(actor, district) });
     }
   }
@@ -2309,7 +2311,10 @@ api.post('/session/:code/turn/ability', async (req, res, next) => {
           throw httpError(409, 'duplicate_district');
         }
 
-        const difference = Math.max(0, districtValue(targetFound.district) - districtValue(ownFound.district));
+        const greatWallSurcharge = hasDistrict(targetFound.owner, 'great-wall') &&
+          targetFound.district.id !== 'great-wall' ? 1 : 0;
+        const difference = Math.max(0, districtValue(targetFound.district) - districtValue(ownFound.district)) +
+          greatWallSurcharge;
         if (actor.gold < difference) throw httpError(409, 'not_enough_gold');
         actor.gold -= difference;
 
@@ -2324,8 +2329,11 @@ api.post('/session/:code/turn/ability', async (req, res, next) => {
         if (cityCompletionCount(found.owner) >= completionTarget(session.players.length)) throw httpError(409, 'completed_city_protected');
         if (found.district.id === 'keep') throw httpError(409, 'keep_protected');
         if (isRankEightProtected(session, found.owner)) throw httpError(409, 'bishop_protected');
-        const cost = districtValue(found.district);
-        if (cost > 3) throw httpError(409, 'marshal_cost_limit');
+        const districtCost = districtValue(found.district);
+        if (districtCost > 3) throw httpError(409, 'marshal_cost_limit');
+        const greatWallSurcharge = hasDistrict(found.owner, 'great-wall') &&
+          found.district.id !== 'great-wall' ? 1 : 0;
+        const cost = districtCost + greatWallSurcharge;
         if (!canBuildDuplicate(actor, found.district)) throw httpError(409, 'duplicate_district');
         if (actor.gold < cost) throw httpError(409, 'not_enough_gold');
 
