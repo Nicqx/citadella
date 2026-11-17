@@ -55,6 +55,27 @@ npm start
 
 Alap URL: `http://localhost:8106/citadella/`.
 
+## Szabálykönyv-alapú E2E / QA
+
+A részletes és folyamatosan bővíthető QA-mátrix: [docs/E2E_RULEBOOK_QA.md](docs/E2E_RULEBOOK_QA.md).
+
+```bash
+npm run test:e2e           # izolált HTTP E2E: 2–8 fő, 27 szerep, kerületek, pontozás
+npm test                   # a teljes unit + HTTP E2E regressziós csomag
+```
+
+Valódi Chromiumban (külön tesztgépen/CI-n):
+
+```bash
+npm install --no-save playwright
+npx playwright install chromium
+npm run test:e2e:browser
+```
+
+A HTTP és böngészős E2E saját, memóriaalapú tesztadatbázist használ, nem a NUC Redisét.
+**Fontos:** 5 egyedi kerület speciális hatásának teljes szerveroldali működése még hiányzik
+(Fegyvertár, Állványzat, Temető, Színház, Tolvajtanya); a tesztek ezt 5 látható TODO-ként jelzik.
+
 ## K3s frissítés
 
 A repo ugyanazt a frissítési mintát követi, mint a többi játékszoba-app:
