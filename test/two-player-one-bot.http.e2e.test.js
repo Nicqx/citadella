@@ -221,6 +221,16 @@ test('HTTP E2E: the eighth district starts the final round and the last characte
 
   assert.equal(state.phase, 'finished', 'the game must end at the end of the current round');
   assert.equal(state.round, 1, 'the game must not start another round after eighth district');
-  assert.equal(state.winnerPlayerId, auth.playerId);
+  // The first player to complete eight districts earns the +4 bonus,
+  // but does NOT necessarily win. The bot can still outscore that player
+  // through its district values and bonuses. Verify the actual rule:
+  // highest score wins; in a tie the higher revealed character rank wins.
+  assert.equal(state.scores.length, 2);
+  const ranked = [...state.scores].sort(
+    (a, b) => b.total - a.total || b.lastCharacterRank - a.lastCharacterRank
+  );
+  assert.equal(state.winnerPlayerId, ranked[0].playerId,
+    'winner must have the most points (higher revealed rank breaks ties)');
+  assert.equal(state.firstCompletedPlayerId, auth.playerId);
   assert.equal(state.scores.find((score) => score.playerId === auth.playerId).completionBonus, 4);
 });
