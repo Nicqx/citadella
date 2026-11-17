@@ -360,6 +360,7 @@ function handCard(card, options = {}) {
   if (options.build) {
     controls.push(`<button data-action="build-card" data-card="${card.cardId}" ${options.disabled ? 'disabled' : ''}>Megépítem · ${effective} 🪙</button>`);
   }
+  if (options.extraControls) controls.push(options.extraControls);
   return `<div class="district-row"><span class="type-dot type-${escapeHtml(type.id)}">${escapeHtml(type.symbol)}</span><div class="district-row-main"><div class="district-row-title"><strong>${escapeHtml(card.name)}</strong><span class="badge">${escapeHtml(type.label)}</span><span class="row-cost">${costLabel} 🪙</span></div>${card.effect ? `<div class="row-effect">${escapeHtml(card.effect)}</div>` : ''}</div>${controls.length ? `<div class="row-actions">${controls.join('')}</div>` : ''}</div>`;
 }
 
@@ -378,10 +379,30 @@ function handPanel({ build = false, selectable = false } = {}) {
     const cannotBuild = action?.buildLimit === 0 ||
       card.id === 'secret-vault' ||
       (card.id === 'monument' && (state.me.built || []).length >= 5);
+    const specials = [];
+    if (canBuildPhase && !limitReached && !cannotBuild) {
+      if ((state.me.built || []).some((district) => district.id === 'framework')) {
+        specials.push(`<button class="secondary" data-action="build-framework" data-card="${card.cardId}">Építés az Állványzat feláldozásával (0 🪙)</button>`);
+      }
+      if (card.id === 'necropolis' && (state.me.built || []).length) {
+        const choices = state.me.built.map((district) =>
+          `<option value="${district.cardId}">${escapeHtml(district.name)}</option>`).join('');
+        specials.push(`<label>Feláldozandó kerület<select id="necropolis-sacrifice">${choices}</select></label><button class="secondary" data-action="build-necropolis-sacrifice" data-card="${card.cardId}">Temető építése feláldozással (0 🪙)</button>`);
+      }
+      if (card.id === 'thieves-den' && cardCost(card) > 0) {
+        const extras = state.me.hand.filter((held) => held.cardId !== card.cardId);
+        if (extras.length) {
+          const choices = extras.map((held) =>
+            `<label class="compact-check"><input type="checkbox" name="thieves-payment" value="${held.cardId}"> ${escapeHtml(held.name)} (1 🪙 fizetőérték)</label>`).join('');
+          specials.push(`<div class="small-text muted">Tolvajtanya: minden bejelölt kézlap 1 aranyat helyettesít. A különbözetet aranyban fizeted.</div><div class="compact-check-list">${choices}</div><button class="secondary" data-action="build-thieves-den" data-card="${card.cardId}">Építés lapokkal és arannyal</button>`);
+        }
+      }
+    }
     return handCard(card, {
       build: canBuildPhase,
       selectable,
-      disabled: cardCost(card) > state.me.gold || limitReached || cannotBuild
+      disabled: cardCost(card) > state.me.gold || limitReached || cannotBuild,
+      extraControls: specials.join('')
     });
   }).join('')}</div>` : '<p class="muted">Nincs kerületlap a kezedben.</p>'}</section>`;
 }
@@ -753,6 +774,19 @@ function districtAbilityPanel() {
   const uses = action.districtUses || {};
   const blocks = [];
 
+  if (builtIds.has('armory')) {
+    const armory = state.me.built.find((district) => district.id === 'armory');
+    const target = state.cityCompletionTarget || (state.players.length <= 3 ? 8 : 7);
+    const eligible = state.players.flatMap((player) =>
+      Number(player.cityDistrictCount ?? player.built.length) >= target ? [] :
+        player.built.filter((district) => district.cardId !== armory.cardId)
+          .map((district) => `<option value="${district.cardId}">${escapeHtml(player.name)}: ${escapeHtml(district.name)}</option>`)
+    );
+    if (Number(state.me.cityDistrictCount ?? state.me.built.length) < target && eligible.length) {
+      blocks.push(`<div class="district-ability-row"><div><strong>Fegyvertár</strong><div class="small-text muted">A Fegyvertár feláldozásával egy kerületet pusztíthatsz el, de befejezett városból nem.</div></div><div class="inline-control"><select id="armory-target">${eligible.join('')}</select><button class="secondary" data-action="use-armory">Elpusztítom a célpontot</button></div></div>`);
+    }
+  }
+
   if (builtIds.has('laboratory')) {
     if (uses.laboratory) {
       blocks.push('<div class="district-ability-row"><strong>Laboratórium</strong><span class="badge good">✓ használva</span></div>');
@@ -1112,6 +1146,25 @@ app.addEventListener('click', async (event) => {
       await post(`/session/${state.code}/turn/resource/keep`, { cardId: button.dataset.card });
     } else if (action === 'build-card') {
       await post(`/session/${state.code}/turn/build`, { cardId: button.dataset.card });
+    } else if (action === 'build-framework') {
+      if (!confirm('Feláldozod az Állványzatot a kerület megépítéséért?')) return;
+      await post(`/session/${state.code}/turn/build`, {
+        cardId: button.dataset.card, paymentMode: 'framework'
+      });
+    } else if (action === 'build-necropolis-sacrifice') {
+      if (!confirm('Feláldozod a kiválasztott saját kerületet a Temetőért?')) return;
+      await post(`/session/${state.code}/turn/build`, {
+        cardId: button.dataset.card,
+        paymentMode: 'sacrifice',
+        sacrificeCardId: document.getElementById('necropolis-sacrifice')?.value
+      });
+    } else if (action === 'build-thieves-den') {
+      const paymentCardIds = [...document.querySelectorAll('input[name="thieves-payment"]:checked')]
+        .map((input) => input.value);
+      if (!paymentCardIds.length) throw new Error('invalid_payment_cards');
+      await post(`/session/${state.code}/turn/build`, {
+        cardId: button.dataset.card, paymentCardIds
+      });
     } else if (action === 'ability-target-character') {
       await post(`/session/${state.code}/turn/ability`, {
         action: 'target-character',
@@ -1223,6 +1276,11 @@ app.addEventListener('click', async (event) => {
       });
     } else if (action === 'collect-tax') {
       await post(`/session/${state.code}/turn/ability`, { action: 'collect-tax' });
+    } else if (action === 'use-armory') {
+      if (!confirm('Feláldozod a Fegyvertárat és elpusztítod a kiválasztott kerületet?')) return;
+      await post(`/session/${state.code}/turn/district-ability`, {
+        districtId: 'armory', targetCardId: document.getElementById('armory-target')?.value
+      });
     } else if (action === 'use-laboratory') {
       const select = document.getElementById('laboratory-card');
       if (!select?.value) throw new Error('cards_required');
