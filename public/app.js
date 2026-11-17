@@ -554,10 +554,12 @@ function marshalTargets() {
   for (const player of state.players.filter((item) => item.id !== state.me.id)) {
     const citySize = player.built.length + (player.built.some((district) => district.id === 'monument') ? 1 : 0);
     if (citySize >= uiCompletionTarget()) continue;
+    const hasGreatWall = player.built.some((district) => district.id === 'great-wall');
     for (const district of player.built) {
       const value = Number(district.cost || 0) + (district.beautified ? 1 : 0);
       if (value > 3 || district.id === 'keep') continue;
-      cards.push(`<button class="target-district secondary" data-action="marshal-seize" data-card="${district.cardId}" ${value > state.me.gold ? 'disabled' : ''}><strong>${escapeHtml(player.name)} · ${escapeHtml(district.name)}</strong><span>${value} 🪙</span></button>`);
+      const totalCost = value + (hasGreatWall && district.id !== 'great-wall' ? 1 : 0);
+      cards.push(`<button class="target-district secondary" data-action="marshal-seize" data-card="${district.cardId}" ${totalCost > state.me.gold ? 'disabled' : ''}><strong>${escapeHtml(player.name)} · ${escapeHtml(district.name)}</strong><span>${totalCost} 🪙</span></button>`);
     }
   }
   return cards.join('') || '<p class="muted">Jelenleg nincs elkobozható kerület.</p>';
