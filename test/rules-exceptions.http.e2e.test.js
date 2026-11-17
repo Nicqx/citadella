@@ -37,3 +37,27 @@ for (const role of ['diplomat', 'marshal']) {
       .built.some((district) => district.id === 'keep'));
   });
 }
+
+for (const role of ['diplomat', 'marshal']) {
+  test('OFFICIAL RULE: Great Wall increases rank-eight ' + role + ' payment by one gold', async (t) => {
+    const h = await openRig(t);
+    const target = role === 'diplomat'
+      ? built('market', 'trade', 2, 'wall_market')
+      : built('watchtower', 'military', 1, 'wall_watchtower');
+
+    seedTurn(h, role, {
+      ownBuilt: [built('temple', 'religious', 1, 'wall_own')],
+      opponentBuilt: [built('great-wall', 'unique', 6), target],
+      gold: 10, otherGold: 8
+    });
+    const action = role === 'diplomat'
+      ? { action: 'swap-districts', ownCardId: 'fixture_wall_own', targetCardId: target.cardId }
+      : { action: 'seize-district', cardId: target.cardId };
+    await h.post('/turn/ability', action);
+    const state = await h.get();
+    assert.equal(state.me.gold, 8, 'base payment 1 + Great Wall surcharge 1');
+    if (role === 'marshal') {
+      assert.equal(state.players.find((p) => p.id === h.auth[1].playerId).gold, 10);
+    }
+  });
+}
