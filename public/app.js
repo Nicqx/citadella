@@ -556,7 +556,7 @@ function marshalTargets() {
     if (citySize >= uiCompletionTarget()) continue;
     for (const district of player.built) {
       const value = Number(district.cost || 0) + (district.beautified ? 1 : 0);
-      if (value > 3) continue;
+      if (value > 3 || district.id === 'keep') continue;
       cards.push(`<button class="target-district secondary" data-action="marshal-seize" data-card="${district.cardId}" ${value > state.me.gold ? 'disabled' : ''}><strong>${escapeHtml(player.name)} · ${escapeHtml(district.name)}</strong><span>${value} 🪙</span></button>`);
     }
   }
@@ -664,8 +664,8 @@ function abilityPanel() {
     } else if (role.id === 'warlord') {
       extra = `<div class="divider"></div><div><p class="eyebrow">Hadúr</p><h3>Kerület elpusztítása</h3></div>${action.destructionUsed ? '<span class="badge good">✓ Pusztítás felhasználva</span>' : `<div class="target-list">${warlordTargets()}</div>`}`;
     } else if (role.id === 'diplomat') {
-      const own = (state.me.built || []).map((district) => `<option value="${district.cardId}">${escapeHtml(district.name)} · ${district.cost} 🪙</option>`).join('');
-      const targets = state.players.filter((p) => p.id !== state.me.id).flatMap((p) => p.built.map((district) => `<option value="${district.cardId}">${escapeHtml(p.name)} · ${escapeHtml(district.name)} · ${district.cost} 🪙</option>`)).join('');
+      const own = (state.me.built || []).filter((district) => district.id !== 'keep').map((district) => `<option value="${district.cardId}">${escapeHtml(district.name)} · ${district.cost} 🪙</option>`).join('');
+      const targets = state.players.filter((p) => p.id !== state.me.id).flatMap((p) => p.built.filter((district) => district.id !== 'keep').map((district) => `<option value="${district.cardId}">${escapeHtml(p.name)} · ${escapeHtml(district.name)} · ${district.cost} 🪙</option>`)).join('');
       extra = action.specialUsed
         ? '<span class="badge good">✓ Kerületcsere felhasználva</span>'
         : `<div class="divider"></div><label>Saját kerület<select id="diplomat-own">${own}</select></label><label>Másik kerület<select id="diplomat-target">${targets}</select></label><button data-action="diplomat-swap">Kerületek cseréje</button>`;
