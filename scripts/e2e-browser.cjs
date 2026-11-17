@@ -99,6 +99,7 @@ async function main() {
     assert.equal(await page.locator('#theater-own-role option').count(), 2);
     await page.locator('button[data-action="theater-swap"]').click();
     await page.locator('.city-progress').waitFor({ state: 'visible' });
+    console.log('PASS: Chromium mobile Theater optional blind swap before first turn');
     await page.waitForFunction(() => document.querySelectorAll('.owned-role-chip').length === 2);
     assert.equal(await page.locator('.owned-role-chip').count(), 2);
     assert.ok((await page.locator('#app').innerText()).includes('2/2 karakter'));
