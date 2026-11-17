@@ -63,7 +63,8 @@ async function main() {
 
     await page.locator('#help-button').click();
     await page.locator('#help-dialog').waitFor({ state: 'visible' });
-    const help = await page.locator('#help-list').innerText();
+    // Text lives in collapsed <details>; textContent includes those panels.
+    const help = await page.locator('#help-list').textContent();
     assert.ok(help.includes('Magisztrátus'));
     assert.ok(help.includes('Királynő'));
     assert.ok(help.includes('Adószedő'));
