@@ -53,9 +53,9 @@ manuálisan elindítható.
 | Emlékmű | 2 kerületnek számít a befejezéshez | HTTP |
 | 30 egyedi kerületből 14 | 13 / 15 / duplikált: elutasítva; 14: elfogadva | HTTP |
 | 27 karakter | karakterenként legalább egy valódi HTTP képesség-/bevétel-/tiltás teszt | HTTP |
-| Speciális kerületek | aktív Labor, Kovácsműhely, Múzeum; több passzív hatás és védelem | HTTP + unit |
+| Speciális kerületek | Labor, Kovácsműhely, Múzeum, Fegyvertár, Állványzat, Temető, Tolvajtanya, Színház; passzív hatások és védelem | HTTP + unit |
 | Titkos kéz és jogosultságok | másik játékos kezét nem mutatja, 401/403, lobby zárolása | HTTP |
-| Mobil UI | létrehozás, bot, véletlen 14, tiltott karakter, 27-es súgó, 2/2, utolsó forduló | Chromium |
+| Mobil UI | létrehozás, bot, véletlen 14, súgó, 2/2, Színház, speciális építések, Fegyvertár, utolsó forduló | Chromium |
 | Asztali UI | háromfős 9. rang, két karakter és botdraft | Chromium |
 
 ### Az összes karakter (27/27: legalább egy HTTP szcenárió)
@@ -80,25 +80,27 @@ valamint a megfelelő esetekben visszautasított második akciót is.
 összes lehetséges karakterpár, kártya- és játékosszám-kombináció
 kimerítő bizonyítása.**
 
-### Ismert, még hiányzó öt egyedi kerülethatás
+### Mind az öt korábban hiányzó kerülethatás – E2E-vel
 
-Az 54 alap + 14 kiválasztott kerületből álló pakli és a teljes 30 lapos
-egyedi katalógus rendben van. Ettől azonban egy kártya képessége
-még nem feltétlenül működik. A következő hatásokhoz nem található
-teljes szerveroldali végrehajtás, ezért a tesztcsomag **5 látható TODO
-esetet** tartalmaz:
+A `test/unique-district-complete.http.e2e.test.js` a korábbi 5 TODO helyett
+valódi HTTP-hívásokkal ellenőrzi a műveleteket, költségeket és tiltásokat.
 
-| Kártya | Hiányzó művelet |
+| Kerület | Megvalósított, ellenőrzött szabály |
 |---|---|
-| Fegyvertár | Fegyvertár feláldozása egy másik kerület elpusztításáért |
-| Állványzat | kerület felépítése az Állványzat feláldozásával az arany helyett |
-| Temető | építés egy saját kerület feláldozásával az arany helyett |
-| Színház | karakterek titkos cseréje a draft végén (2–3 főnél is) |
-| Tolvajtanya | kerület építési költségének kifizetése kézlapokból |
+| Fegyvertár | Az aktív játékos feláldozza a Fegyvertárat, és elpusztít egy másik kerületet; befejezett városból nem pusztíthat |
+| Állványzat | Az Állványzat feláldozásával 0 aranyért építhet; Magisztrátus nem kobozhatja el az így felépített kerületet |
+| Temető | A megépítéshez saját kerületet lehet feláldozni arany helyett; Múzeum áldozásakor az alatta lévő lapok is visszakerülnek a pakliba |
+| Színház | A teljes draft után, a kör kezdete előtt dönthető el a titkos, opcionális karaktercsere; 2–3 főnél a saját átadott karakter választható, a célpont két karaktere közül véletlenül kerül kiválasztásra; 4+ főnél egy karakter cserél gazdát |
+| Tolvajtanya | Minden eldobott kézlap 1 aranynyi építési költséget fedez; a többit aranyban kell kifizetni; Magisztrátus-elkobzás esetén csak az elköltött arany jár vissza |
 
-Ezek **nem PASS-ok** és nem a szabályok szerint működőnek tekintendők.
-Minden egyedi kerülethatást külön pozitív tesztnek kell majd védenie,
-amikor az implementáció elkészül.
+A Színház cseréje **nem** mutatja meg a célpont rejtett lapjait a
+cserét végrehajtó játékosnak, és a többi játékoshoz csak a saját
+aktuális titkos karakterük jut el. A bot számára a csere opcionális:
+jelenleg automatikusan **kihagyja** a vak Színház-cserét.
+
+A Chromium mobilos E2E a Színház választófelületét, az Állványzat
+feláldozásával történő építést és a Fegyvertár képességét is tényleges
+gombnyomásokon keresztül ellenőrzi.
 
 ### Konkrét szabályhibák, amelyeket a tesztkörnyezet felfedezett
 
@@ -122,10 +124,10 @@ partit tíz-húsz valódi fordulón át lejátszani.
 
 A teszt nem jelenti azt, hogy az egész szabálykönyv minden
 kerület-kombinációja, a 27 karakter minden szélső esete vagy a
-teljes UI minden karaktergombja ellenőrzött. A hiányzó öt kerülethatás
-mellett később külön mély E2E szükséges a komplikált
-kerület- és karakterkölcsönhatásokra, például Színház 2–3 fővel,
-Boszorkány + Magisztrátus + Zsaroló és speciális építési módok.
+teljes UI minden karaktergombja ellenőrzött. A jelenlegi tesztek mellett később is szükség van mélyebb E2E-re a
+komplikált karakter- és kerületkombinációkra, például Boszorkány +
+Magisztrátus + Zsaroló együttes hatásaira. Egyetlen tesztcsomag sem
+fedi le az összes lehetséges játéksorrendet.
 
 **A jelenlegi QA tehát erős regressziós alap, nem 100%-os
 szabályhűségi tanúsítvány.**
