@@ -757,15 +757,16 @@ function endCurrentTurn(session) {
   }
 
   if (actor) {
-    if (current.characterId === 'alchemist' && action.buildGoldSpent > 0) {
-      actor.gold = Math.min(MAX_GOLD, actor.gold + action.buildGoldSpent);
-      action.buildGoldSpent = 0;
-    }
     if (hasDistrict(actor, 'park') && actor.hand.length === 0 && session.districtDeck.length >= 2) {
       actor.hand.push(...drawCards(session, 2));
     }
+    // The official rules explicitly resolve Poor House before the Alchemist refund.
     if (hasDistrict(actor, 'poor-house') && actor.gold === 0) {
       actor.gold = 1;
+    }
+    if (current.characterId === 'alchemist' && action.buildGoldSpent > 0) {
+      actor.gold = Math.min(MAX_GOLD, actor.gold + action.buildGoldSpent);
+      action.buildGoldSpent = 0;
     }
   }
 
@@ -2295,6 +2296,9 @@ api.post('/session/:code/turn/ability', async (req, res, next) => {
           throw httpError(400, 'invalid_district_target');
         }
         if (cityCompletionCount(targetFound.owner) >= completionTarget(session.players.length)) throw httpError(409, 'completed_city_protected');
+        if (ownFound.district.id === 'keep' || targetFound.district.id === 'keep') {
+          throw httpError(409, 'keep_protected');
+        }
         if (isRankEightProtected(session, targetFound.owner)) throw httpError(409, 'bishop_protected');
 
         const actorOther = actor.built.filter((district) => district.cardId !== ownFound.district.cardId);
@@ -2318,6 +2322,7 @@ api.post('/session/:code/turn/ability', async (req, res, next) => {
         const found = findBuiltDistrict(session, String(req.body.cardId || ''));
         if (!found || found.owner.id === actor.id) throw httpError(400, 'invalid_district_target');
         if (cityCompletionCount(found.owner) >= completionTarget(session.players.length)) throw httpError(409, 'completed_city_protected');
+        if (found.district.id === 'keep') throw httpError(409, 'keep_protected');
         if (isRankEightProtected(session, found.owner)) throw httpError(409, 'bishop_protected');
         const cost = districtValue(found.district);
         if (cost > 3) throw httpError(409, 'marshal_cost_limit');
