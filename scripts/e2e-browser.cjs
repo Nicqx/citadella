@@ -104,8 +104,9 @@ async function main() {
     rig.store.values.set(key, JSON.stringify(state));
     await page.reload({ waitUntil: 'domcontentloaded' });
     await page.locator('.final-round-banner').waitFor({ state: 'visible' });
-    assert.ok((await page.locator('.final-round-banner').innerText()).includes('Utolsó forduló'));
-    assert.ok((await page.locator('.final-round-banner').innerText()).includes('8/8 kerület'));
+    const bannerText = await page.locator('.final-round-banner').innerText();
+    assert.match(bannerText, /utolsó forduló/i);
+    assert.match(bannerText, /8\/8 kerület/i);
     assert.deepEqual(errors, []);
     await mobile.close();
     console.log('PASS: Chromium mobile 2-player lobby, random-14, help, draft, 2/2 roles and final round');
