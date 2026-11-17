@@ -897,6 +897,19 @@ function findBuiltDistrict(session, districtCardId) {
   return null;
 }
 
+function discardBuiltDistrict(session, owner, cardId) {
+  const index = owner.built.findIndex((district) => district.cardId === cardId);
+  if (index < 0) throw httpError(404, 'district_not_found');
+  const [discarded] = owner.built.splice(index, 1);
+  // A destroyed Museum loses its stored cards as well. Keep the same behavior
+  // for district-power destruction and sacrificial construction.
+  if (discarded.id === 'museum' && Array.isArray(discarded.storedCards)) {
+    putOnDeckBottom(session, discarded.storedCards);
+  }
+  putOnDeckBottom(session, [discarded]);
+  return discarded;
+}
+
 function cityCompletionCount(player) {
   return player.built.length + (hasDistrict(player, 'monument') ? 1 : 0);
 }
@@ -2005,13 +2018,52 @@ api.post('/session/:code/turn/build', async (req, res, next) => {
       }
 
       const cost = effectiveBuildCost(actor, card);
-      if (actor.gold < cost) throw httpError(409, 'not_enough_gold');
+      const paymentMode = String(req.body.paymentMode || 'gold');
+      const paymentIds = Array.isArray(req.body.paymentCardIds) ? req.body.paymentCardIds.map(String) : [];
+      let goldPaid = cost;
+      let sacrificeCardId = null;
+      let paymentCards = [];
 
-      actor.gold -= cost;
+      if (paymentMode === 'framework') {
+        if (paymentIds.length) throw httpError(400, 'invalid_payment_mode');
+        const framework = actor.built.find((district) => district.id === 'framework');
+        if (!framework) throw httpError(409, 'framework_required');
+        sacrificeCardId = framework.cardId;
+        goldPaid = 0;
+      } else if (paymentMode === 'sacrifice') {
+        if (paymentIds.length || card.id !== 'necropolis') throw httpError(400, 'invalid_payment_mode');
+        sacrificeCardId = String(req.body.sacrificeCardId || '');
+        if (!actor.built.some((district) => district.cardId === sacrificeCardId)) {
+          throw httpError(404, 'district_not_found');
+        }
+        goldPaid = 0;
+      } else if (paymentMode === 'gold') {
+        if (paymentIds.length) {
+          if (card.id !== 'thieves-den' || new Set(paymentIds).size !== paymentIds.length ||
+            paymentIds.includes(cardId) || paymentIds.length > cost) {
+            throw httpError(400, 'invalid_payment_cards');
+          }
+          paymentCards = paymentIds.map((idValue) => actor.hand.find((handCard) => handCard.cardId === idValue));
+          if (paymentCards.some((handCard) => !handCard)) throw httpError(404, 'district_not_in_hand');
+          goldPaid = cost - paymentCards.length;
+        }
+      } else {
+        throw httpError(400, 'invalid_payment_mode');
+      }
+      if (actor.gold < goldPaid) throw httpError(409, 'not_enough_gold');
+
+      // Validate all inputs above before changing the session. A zero-gold
+      // construction via sacrifice cannot be confiscated by the Magistrate.
+      actor.gold -= goldPaid;
+      if (sacrificeCardId) discardBuiltDistrict(session, actor, sacrificeCardId);
       actor.hand.splice(cardIndex, 1);
+      if (paymentCards.length) {
+        actor.hand = actor.hand.filter((handCard) => !paymentIds.includes(handCard.cardId));
+        putOnDeckBottom(session, paymentCards);
+      }
       actor.built.push({ ...card, beautified: false, builtAtRound: session.round });
       if (buildConsumesLimit(current.characterId, card)) action.builds += 1;
-      finalizeDistrictBuild(session, actor, current.characterId, actor.built[actor.built.length - 1], cost, action);
+      finalizeDistrictBuild(session, actor, current.characterId, actor.built[actor.built.length - 1], goldPaid, action);
 
       await saveSession(session);
     });
@@ -2451,12 +2503,31 @@ api.post('/session/:code/turn/district-ability', async (req, res, next) => {
       requireActiveActor(session, actor);
       const action = activeAction(session);
       if (!action.resourceGathered) throw httpError(409, 'resource_required');
-      if (action.pendingDraw?.length) throw httpError(409, 'draw_choice_required');
+      requireNoPendingTurnChoice(action);
       if (!action.districtUses || typeof action.districtUses !== 'object') action.districtUses = {};
 
       const districtId = String(req.body.districtId || '');
 
-      if (districtId === 'laboratory') {
+      if (districtId === 'armory') {
+        const armory = actor.built.find((district) => district.id === 'armory');
+        if (!armory) throw httpError(409, 'district_ability_unavailable');
+        if (action.districtUses.armory) throw httpError(409, 'district_ability_already_used');
+
+        const target = findBuiltDistrict(session, String(req.body.targetCardId || ''));
+        if (!target || target.district.cardId === armory.cardId) {
+          throw httpError(400, 'invalid_district_target');
+        }
+        const threshold = completionTarget(session.players.length);
+        // The rulebook forbids destroying districts in a completed city,
+        // including sacrificing the Armory from such a city.
+        if (cityCompletionCount(actor) >= threshold ||
+          cityCompletionCount(target.owner) >= threshold) {
+          throw httpError(409, 'completed_city_protected');
+        }
+        discardBuiltDistrict(session, actor, armory.cardId);
+        discardBuiltDistrict(session, target.owner, target.district.cardId);
+        action.districtUses.armory = true;
+      } else if (districtId === 'laboratory') {
         if (!hasDistrict(actor, 'laboratory')) throw httpError(409, 'district_ability_unavailable');
         if (action.districtUses.laboratory) throw httpError(409, 'district_ability_already_used');
 
