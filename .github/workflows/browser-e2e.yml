@@ -1,0 +1,30 @@
+name: browser-e2e
+
+on:
+  push:
+    paths:
+      - 'scripts/e2e-browser.cjs'
+      - 'public/**'
+      - '.github/workflows/browser-e2e.yml'
+  pull_request:
+    paths:
+      - 'scripts/e2e-browser.cjs'
+      - 'public/**'
+      - 'server.js'
+      - 'game.js'
+      - '.github/workflows/browser-e2e.yml'
+  workflow_dispatch:
+
+jobs:
+  chromium:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm install
+      - run: npm install --no-save playwright
+      - run: npx playwright install chromium --with-deps
+      - run: npm run test:e2e:browser
