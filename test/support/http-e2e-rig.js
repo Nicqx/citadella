@@ -5,6 +5,7 @@
 const assert = require('node:assert/strict');
 const { app, setRedisClientForTests } = require('../../server');
 const { CHARACTER_MAP, DEFAULT_CHARACTER_IDS } = require('../../game');
+const { createDistrictDeck, DEFAULT_UNIQUE_DISTRICT_IDS } = require('../../districts');
 
 function memoryRedis() {
   const values = new Map();
@@ -124,6 +125,7 @@ function seedTurn(rig, roleId, {
     session.roundFaceUpCharacterIds = [];
     session.botActionLog = [];
     session.botActionSeq = 0;
+    session.districtDeck = createDistrictDeck(DEFAULT_UNIQUE_DISTRICT_IDS);
     session.selectedCharacterIds = [...DEFAULT_CHARACTER_IDS];
     session.selectedCharacterIds[rank - 1] = roleId;
     if (count === 3) session.selectedCharacterIds[8] = roleId === 'tax-collector' || roleId === 'artist' ? roleId : 'artist';
