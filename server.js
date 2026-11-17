@@ -1541,7 +1541,7 @@ function runBots(session) {
         ['Titokban, a beállított stratégiája alapján karaktert választott.'],
         'draft'
       );
-      if (completed) beginTurns(session);
+      if (completed) afterDraft(session);
       continue;
     }
 
