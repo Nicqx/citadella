@@ -5,27 +5,18 @@ const assert = require('node:assert/strict');
 const { UNIQUE_DISTRICTS } = require('../districts');
 const { openRig, seedTurn, card, built } = require('./support/http-e2e-rig');
 
-// Do not conflate a listed card with an implemented card effect.
-// These five are present in the selectable card catalog, but no corresponding
-// game-action implementation exists. Keep visible TODOs until covered by a
-// positive HTTP test that performs the actual card effect.
-const PENDING_EFFECTS = [
-  ['armory', 'Fegyvertár – sacrifice to destroy a district'],
-  ['framework', 'Állványzat – sacrifice instead of paying the build cost'],
-  ['necropolis', 'Temető – build by destroying a district instead of paying'],
-  ['theater', 'Színház – secret role swap at the end of draft'],
-  ['thieves-den', 'Tolvajtanya – pay build cost with hand cards']
+// These cards are implemented by the dedicated HTTP scenarios in
+// unique-district-complete.http.e2e.test.js. Do not replace those
+// behavioral tests with a catalog-only check.
+const COMPLETED_EFFECTS = [
+  'armory', 'framework', 'necropolis', 'theater', 'thieves-den'
 ];
 
-test('RULE AUDIT: every declared yet unimplemented district is tracked', () => {
+test('RULE AUDIT: all five formerly pending district effects are selectable', () => {
   const catalogIds = new Set(UNIQUE_DISTRICTS.map((card) => card.id));
   assert.equal(catalogIds.size, 30);
-  for (const [id] of PENDING_EFFECTS) assert.ok(catalogIds.has(id));
+  for (const id of COMPLETED_EFFECTS) assert.ok(catalogIds.has(id));
 });
-
-for (const [id, description] of PENDING_EFFECTS) {
-  test.todo('UNIMPLEMENTED: ' + description + ' (' + id + ')');
-}
 
 test('SCORING HTTP E2E: Basilica scores one bonus for each odd-cost district', async (t) => {
   const h = await openRig(t);
