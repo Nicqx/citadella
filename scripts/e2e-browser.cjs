@@ -82,7 +82,7 @@ async function main() {
     await page.locator('#draft-keep-character').waitFor({ state: 'visible' });
     assert.match(await page.locator('#app').innerText(), /1\/2/);
     await page.locator('button[data-action="choose-character-pair"]').click();
-    await page.locator('.owned-role-chip').first().waitFor();
+    await page.waitForFunction(() => document.querySelectorAll('.owned-role-chip').length === 2);
     assert.equal(await page.locator('.owned-role-chip').count(), 2);
     assert.ok((await page.locator('#app').innerText()).includes('2/2 karakter'));
 
@@ -125,7 +125,7 @@ async function main() {
     await page3.locator('#start-game-button').click();
     await draftHumanFirst(page3);
     await draftHumanFirst(page3);
-    await page3.locator('.owned-role-chip').first().waitFor();
+    await page3.waitForFunction(() => document.querySelectorAll('.owned-role-chip').length === 2);
     assert.equal(await page3.locator('.owned-role-chip').count(), 2);
     assert.ok((await page3.locator('#app').innerText()).includes('2/2 karakter'));
     assert.deepEqual(errors3, []);
