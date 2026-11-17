@@ -272,3 +272,36 @@ test('THEATER HTTP: no Theater built uses normal draft-to-turn transition', asyn
   await h.post('/start');
   assert.equal((await playDraft(h)).phase, 'turns');
 });
+
+for (const theaterOwner of ['human', 'bot']) {
+  test('THEATER HTTP: bot finishes 2-player draft; ' + theaterOwner + ' owns Theater', async (t) => {
+    const h = await openRig(t, { players: 2 });
+    h.mutate((session) => { session.players.splice(1, 1); });
+    await h.post('/bots', { count: 1 });
+    await h.post('/start');
+    h.mutate((session) => {
+      const player = theaterOwner === 'human'
+        ? session.players.find((p) => !p.isBot)
+        : session.players.find((p) => p.isBot);
+      player.built.push(built('theater', 'unique', 6));
+    });
+    let state = await h.get();
+    for (let step = 0; step < 3 && state.phase === 'draft'; step += 1) {
+      assert.equal(state.draft.currentPlayerId, h.auth[0].playerId);
+      const options = state.draft.options;
+      const payload = { characterId: options[0].id };
+      if (state.draft.discardRequired) payload.discardCharacterId = options[1].id;
+      await h.post('/draft/choose', payload);
+      state = await h.get();
+    }
+    if (theaterOwner === 'human') {
+      assert.equal(state.phase, 'theater');
+      assert.equal(state.theater.currentPlayerId, h.auth[0].playerId);
+      await h.post('/theater/choose', { action: 'skip' });
+      assert.equal((await h.get()).phase, 'turns');
+    } else {
+      assert.equal(state.phase, 'turns', 'bot should automatically skip its optional Theater swap');
+      assert.equal(state.turn.total, 4);
+    }
+  });
+}
