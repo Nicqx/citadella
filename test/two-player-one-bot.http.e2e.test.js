@@ -234,3 +234,60 @@ test('HTTP E2E: the eighth district starts the final round and the last characte
   assert.equal(state.firstCompletedPlayerId, auth.playerId);
   assert.equal(state.scores.find((score) => score.playerId === auth.playerId).completionBonus, 4);
 });
+
+
+test('HTTP scoring regression: completing eight districts first does not guarantee victory', async (t) => {
+  const { server, baseUrl, store } = await startServer();
+  t.after(() => new Promise((resolve, reject) => {
+    server.close((error) => error ? reject(error) : resolve());
+  }));
+
+  const created = await jsonRequest(baseUrl, '/session', {
+    method: 'POST', body: { hostName: 'First finisher can lose' }
+  });
+  const auth = { playerId: created.playerId, token: created.token };
+  const route = `/session/${created.code}`;
+  await jsonRequest(baseUrl, `${route}/bots`, {
+    method: 'POST', auth, body: { count: 1 }
+  });
+  await jsonRequest(baseUrl, `${route}/start`, { method: 'POST', auth });
+
+  // Fixed scoring fixture: the human was the first to complete a city
+  // (eight inexpensive districts), but the bot has more points from
+  // seven expensive districts. Use the host finish endpoint, which
+  // calls the same finishGame/scorePlayer logic as normal round completion.
+  const key = `citadella:session:${created.code}`;
+  const session = JSON.parse(store.values.get(key));
+  const human = session.players.find((p) => p.id === auth.playerId);
+  const bot = session.players.find((p) => p.isBot);
+  assert.ok(human && bot);
+  session.phase = 'turns';
+  session.finalRound = true;
+  session.firstCompletedPlayerId = human.id;
+  human.built = Array.from({ length: 8 }, (_, index) => ({
+    cardId: `human_city_${index}`,
+    id: `human_city_${index}`,
+    name: `Human city ${index}`,
+    type: 'trade',
+    cost: 1
+  }));
+  bot.built = Array.from({ length: 7 }, (_, index) => ({
+    cardId: `bot_city_${index}`,
+    id: `bot_city_${index}`,
+    name: `Bot city ${index}`,
+    type: 'noble',
+    cost: 5
+  }));
+  store.values.set(key, JSON.stringify(session));
+
+  await jsonRequest(baseUrl, `${route}/finish`, { method: 'POST', auth });
+  const finished = await jsonRequest(baseUrl, `${route}/state`, { auth });
+  assert.equal(finished.phase, 'finished');
+  assert.equal(finished.firstCompletedPlayerId, human.id);
+  assert.equal(finished.scores.find((s) => s.playerId === human.id).completionBonus, 4);
+  const botScore = finished.scores.find((s) => s.playerId === bot.id);
+  const humanScore = finished.scores.find((s) => s.playerId === human.id);
+  assert.ok(botScore.total > humanScore.total,
+    'bot must have more final points even though the human finished first');
+  assert.equal(finished.winnerPlayerId, bot.id);
+});
