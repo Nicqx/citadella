@@ -165,4 +165,4 @@ function seedTurn(rig, roleId, {
   });
 }
 
-module.exports = { openRig, seedTurn, card, built };
+module.exports = { memoryRedis, openRig, seedTurn, card, built };
