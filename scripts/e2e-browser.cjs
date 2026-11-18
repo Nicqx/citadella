@@ -195,6 +195,39 @@ async function main() {
     await page.locator('#activity-dialog').waitFor({ state: 'hidden' });
     console.log('PASS: Chromium combines consecutive bot actions and filters own actions');
 
+    // Two distinct human players close turns while the first popup is not
+    // acknowledged; the same open dialog must refresh and group both.
+    const multiHumanFixture = JSON.parse(rig.store.values.get(specialKey));
+    const initialId = Number(multiHumanFixture.activitySeq || 0);
+    multiHumanFixture.activitySeq = initialId + 1;
+    multiHumanFixture.activityLog.push({
+      id: initialId + 1, round: multiHumanFixture.round,
+      playerId: 'browser-human-two', playerName: 'Második ember',
+      isBot: false, characterName: 'Püspök',
+      messages: ['Második ember lezárta a körét.']
+    });
+    rig.store.values.set(specialKey, JSON.stringify(multiHumanFixture));
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.locator('#activity-dialog').waitFor({ state: 'visible' });
+    assert.match(await page.locator('#activity-dialog').innerText(), /Második ember lezárta/);
+    const alreadyOpen = await page.locator('#activity-dialog').evaluate((dialog) => dialog.open);
+    assert.equal(alreadyOpen, true);
+    multiHumanFixture.activitySeq = initialId + 2;
+    multiHumanFixture.activityLog.push({
+      id: initialId + 2, round: multiHumanFixture.round,
+      playerId: 'browser-human-three', playerName: 'Harmadik ember',
+      isBot: false, characterName: 'Kereskedő',
+      messages: ['Harmadik ember lezárta a körét.']
+    });
+    rig.store.values.set(specialKey, JSON.stringify(multiHumanFixture));
+    await page.waitForFunction(() =>
+      document.querySelector('#activity-dialog')?.textContent.includes('Harmadik ember lezárta'));
+    assert.equal(await page.locator('#activity-dialog .activity-group').count(), 2);
+    assert.equal(await page.locator('#activity-dialog .activity-entry').count(), 2);
+    await page.locator('#activity-ack').click();
+    await page.locator('#activity-dialog').waitFor({ state: 'hidden' });
+    console.log('PASS: Chromium unacknowledged multi-human actions update one dialog');
+
     assert.equal(await page.locator('button[data-action="build-necropolis-sacrifice"]').count(), 1);
     assert.equal(await page.locator('button[data-action="build-thieves-den"]').count(), 1);
     assert.equal(await page.locator('button[data-action="use-armory"]').count(), 1);
