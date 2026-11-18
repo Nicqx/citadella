@@ -47,6 +47,11 @@ manuálisan elindítható.
 | 2–3 fős normál draft | kétszeri titkos választás, dobások, karakterek titkossága | unit + HTTP |
 | 2 játékosnál Császár tiltása | konfigurációs elutasítás | HTTP |
 | 3 játékosnál Királynő tiltása | konfigurációs elutasítás | HTTP |
+| 4–7 játékos, opcionális 8/9 karakter | lobby választó, helyes nyílt és titkos félretétel, minden szerep kiosztása | unit + HTTP + Chromium |
+| 4 fő 9 karakterrel | Királynő tiltása, Művész/Adószedő engedélyezése | unit + HTTP + Chromium |
+| 5–7 fő 9 karakterrel | Királynő is választható | unit + HTTP |
+| 7 fő / 8 karakter, 8 fő / 9 karakter | utolsó választó a titkos félretett kártyát is választhatja | unit + HTTP |
+| 7 fő / 9 karakter | utolsó választó nem nézheti meg a titkos félretett karaktert | unit + HTTP |
 | 2–3 fő: 8 kerület | 7. kerület még nem zár le, 8. elindítja az utolsó fordulót | HTTP |
 | 4, 5, 7, 8 fő: 7 kerület | 6. még nem zár le, 7. elindítja az utolsó fordulót | HTTP |
 | Forduló lezárása | minden hátralévő karakterkör lefut, nem indul új draft, pontozás automatikus | HTTP |
@@ -56,6 +61,7 @@ manuálisan elindítható.
 | Speciális kerületek | Labor, Kovácsműhely, Múzeum, Fegyvertár, Állványzat, Temető, Tolvajtanya, Színház; passzív hatások és védelem | HTTP + unit |
 | Titkos kéz és jogosultságok | másik játékos kezét nem mutatja, 401/403, lobby zárolása | HTTP |
 | Mobil UI | létrehozás, bot, véletlen 14, súgó, 2/2, Színház, speciális építések, Fegyvertár, utolsó forduló | Chromium |
+| Asztali 4 fő / 9 karakter | lobby kapcsoló, Királynő tiltása, 3 nyílt félretett lap, teljes botdraft | Chromium |
 | Asztali UI | háromfős 9. rang, két karakter és botdraft | Chromium |
 
 ### Az összes karakter (27/27: legalább egy HTTP szcenárió)
