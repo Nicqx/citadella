@@ -8,6 +8,10 @@ const helpDialog = document.getElementById('help-dialog');
 const helpClose = document.getElementById('help-close');
 const helpList = document.getElementById('help-list');
 const toast = document.getElementById('toast');
+const activityDialog = document.getElementById('activity-dialog');
+const activityContent = document.getElementById('activity-content');
+const activityAck = document.getElementById('activity-ack');
+let activityLastShownId = 0;
 
 let auth = loadAuth();
 let state = null;
@@ -958,6 +962,54 @@ function renderHelp() {
       </div>
     </details>`;
 }
+function activityStorageKey() {
+  if (!state?.me) return null;
+  return `citadella-activity-seen:${state.code}:${state.gameEpoch}:${state.me.id}`;
+}
+
+function unreadOpponentActions() {
+  const key = activityStorageKey();
+  if (!key) return [];
+  let seen = 0;
+  try { seen = Math.max(0, Number(localStorage.getItem(key)) || 0); } catch (_error) { /* Private mode. */ }
+  return (state.activityLog || []).filter((entry) =>
+    Number(entry.id) > seen && entry.playerId !== state.me.id
+  );
+}
+
+function renderActivityDialog() {
+  if (!activityDialog || !state || !['turns', 'finished'].includes(state.phase)) {
+    if (activityDialog?.open) activityDialog.close();
+    return;
+  }
+  const pending = unreadOpponentActions();
+  if (!pending.length) {
+    if (activityDialog.open) activityDialog.close();
+    return;
+  }
+  activityLastShownId = Math.max(...pending.map((entry) => Number(entry.id)));
+  const groups = [];
+  for (const entry of pending) {
+    const previous = groups.at(-1);
+    if (entry.isBot && previous?.isBot) {
+      previous.entries.push(entry);
+    } else {
+      groups.push({ isBot: Boolean(entry.isBot), entries: [entry] });
+    }
+  }
+  activityContent.innerHTML = groups.map((group) => {
+    const heading = group.isBot
+      ? '🤖 Botok lépései'
+      : escapeHtml(group.entries[0].playerName) + ' lépései';
+    const entries = group.entries.map((entry) => {
+      const role = entry.characterName ? ' · ' + escapeHtml(entry.characterName) : '';
+      return `<article class="activity-entry"><strong>${escapeHtml(entry.playerName)}${role}</strong><small>${entry.round}. forduló</small><ul>${(entry.messages || []).map((message) => `<li>${escapeHtml(message)}</li>`).join('')}</ul></article>`;
+    }).join('');
+    return `<section class="activity-group"><h3>${heading}</h3>${entries}</section>`;
+  }).join('');
+  if (!activityDialog.open) activityDialog.showModal();
+}
+
 function shouldRenderState(previousState, nextState) {
   if (!previousState) return true;
   return previousState.code !== nextState.code ||
@@ -972,6 +1024,7 @@ async function refresh() {
     const shouldRender = shouldRenderState(state, nextState);
     state = nextState;
     if (shouldRender) render();
+    renderActivityDialog();
   } catch (err) {
     if (['session_not_found', 'auth_failed'].includes(err.code)) {
       stopPolling();
@@ -1020,6 +1073,7 @@ async function joinSession(form) {
 }
 
 function leaveSession() {
+  if (activityDialog?.open) activityDialog.close();
   stopPolling();
   saveAuth(null);
   state = null;
@@ -1353,6 +1407,17 @@ app.addEventListener('change', async (event) => {
   }
 });
 
+activityAck.addEventListener('click', () => {
+  const key = activityStorageKey();
+  if (key && activityLastShownId) {
+    try { localStorage.setItem(key, String(activityLastShownId)); } catch (_error) { /* Private mode. */ }
+  }
+  activityDialog.close();
+  renderActivityDialog();
+});
+activityDialog.addEventListener('cancel', (event) => {
+  event.preventDefault(); // Explicit acknowledgment; Escape must not silently discard activity.
+});
 helpButton.addEventListener('click', () => helpDialog.showModal());
 helpClose.addEventListener('click', () => helpDialog.close());
 helpDialog.addEventListener('click', (event) => {

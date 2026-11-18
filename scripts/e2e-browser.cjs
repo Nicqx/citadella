@@ -137,9 +137,97 @@ async function main() {
       }))
     ];
     specialOwner.gold = 0;
+    // Deterministic opponent event: bot drafting may or may not have generated
+    // a turn entry before this fixture, so never depend on random bot order.
+    const notificationBot = special.players.find((player) => player.isBot);
+    assert.ok(notificationBot, 'mobile fixture needs a bot opponent');
+    const seedId = Number(special.activitySeq || 0) + 1;
+    special.activitySeq = seedId;
+    special.activityLog.push({
+      id: seedId, round: special.round, playerId: notificationBot.id,
+      playerName: notificationBot.name, isBot: true,
+      characterName: 'Kereskedő', messages: ['Bot körvégi próbaesemény.']
+    });
     rig.store.values.set(specialKey, JSON.stringify(special));
     await page.reload({ waitUntil: 'domcontentloaded' });
     await page.locator('button[data-action="build-framework"][data-card="browser_palace"]').waitFor();
+    // Opponent actions deliberately appear as a modal and require acknowledgment
+    // before the user can interact with the table.
+    await page.locator('#activity-dialog').waitFor({ state: 'visible' });
+    assert.match(await page.locator('#activity-dialog').innerText(), /Bot körvégi próbaesemény/);
+    await page.locator('#activity-ack').click();
+    await page.locator('#activity-dialog').waitFor({ state: 'hidden' });
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.locator('button[data-action="build-framework"][data-card="browser_palace"]').waitFor();
+    assert.equal(await page.locator('#activity-dialog').isVisible(), false,
+      'acknowledged opponent turn must not reopen on reload');
+    console.log('PASS: Chromium opponent activity modal acknowledges and stays closed on reload');
+
+    // Two new bot actions are combined into one unacknowledged popup;
+    // a local player's event must never appear as an opponent action.
+    const notificationFixture = JSON.parse(rig.store.values.get(specialKey));
+    const bot = notificationFixture.players.find((player) => player.isBot);
+    assert.ok(bot, 'expected bot opponent in mobile fixture');
+    const firstActivityId = Number(notificationFixture.activitySeq || 0) + 1;
+    notificationFixture.activitySeq = firstActivityId + 2;
+    notificationFixture.activityLog.push(
+      { id: firstActivityId, round: notificationFixture.round, playerId: bot.id,
+        playerName: bot.name, isBot: true, characterName: 'Tolvaj',
+        messages: ['Első botlépés próba.'] },
+      { id: firstActivityId + 1, round: notificationFixture.round, playerId: bot.id,
+        playerName: bot.name, isBot: true, characterName: 'Király',
+        messages: ['Második botlépés próba.'] },
+      { id: firstActivityId + 2, round: notificationFixture.round,
+        playerId: specialOwner.id, playerName: specialOwner.name,
+        isBot: false, characterName: 'Mágus',
+        messages: ['Saját lépés, ezt nem mutathatja.'] }
+    );
+    rig.store.values.set(specialKey, JSON.stringify(notificationFixture));
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.locator('#activity-dialog').waitFor({ state: 'visible' });
+    assert.equal(await page.locator('#activity-dialog .activity-group').count(), 1);
+    assert.equal(await page.locator('#activity-dialog .activity-entry').count(), 2);
+    const combinedSummary = await page.locator('#activity-dialog').innerText();
+    assert.match(combinedSummary, /Első botlépés próba/);
+    assert.match(combinedSummary, /Második botlépés próba/);
+    assert.doesNotMatch(combinedSummary, /Saját lépés, ezt nem mutathatja/);
+    await page.locator('#activity-ack').click();
+    await page.locator('#activity-dialog').waitFor({ state: 'hidden' });
+    console.log('PASS: Chromium combines consecutive bot actions and filters own actions');
+
+    // Two distinct human players close turns while the first popup is not
+    // acknowledged; the same open dialog must refresh and group both.
+    const multiHumanFixture = JSON.parse(rig.store.values.get(specialKey));
+    const initialId = Number(multiHumanFixture.activitySeq || 0);
+    multiHumanFixture.activitySeq = initialId + 1;
+    multiHumanFixture.activityLog.push({
+      id: initialId + 1, round: multiHumanFixture.round,
+      playerId: 'browser-human-two', playerName: 'Második ember',
+      isBot: false, characterName: 'Püspök',
+      messages: ['Második ember lezárta a körét.']
+    });
+    rig.store.values.set(specialKey, JSON.stringify(multiHumanFixture));
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.locator('#activity-dialog').waitFor({ state: 'visible' });
+    assert.match(await page.locator('#activity-dialog').innerText(), /Második ember lezárta/);
+    const alreadyOpen = await page.locator('#activity-dialog').evaluate((dialog) => dialog.open);
+    assert.equal(alreadyOpen, true);
+    multiHumanFixture.activitySeq = initialId + 2;
+    multiHumanFixture.activityLog.push({
+      id: initialId + 2, round: multiHumanFixture.round,
+      playerId: 'browser-human-three', playerName: 'Harmadik ember',
+      isBot: false, characterName: 'Kereskedő',
+      messages: ['Harmadik ember lezárta a körét.']
+    });
+    rig.store.values.set(specialKey, JSON.stringify(multiHumanFixture));
+    await page.waitForFunction(() =>
+      document.querySelector('#activity-dialog')?.textContent.includes('Harmadik ember lezárta'));
+    assert.equal(await page.locator('#activity-dialog .activity-group').count(), 2);
+    assert.equal(await page.locator('#activity-dialog .activity-entry').count(), 2);
+    await page.locator('#activity-ack').click();
+    await page.locator('#activity-dialog').waitFor({ state: 'hidden' });
+    console.log('PASS: Chromium unacknowledged multi-human actions update one dialog');
+
     assert.equal(await page.locator('button[data-action="build-necropolis-sacrifice"]').count(), 1);
     assert.equal(await page.locator('button[data-action="build-thieves-den"]').count(), 1);
     assert.equal(await page.locator('button[data-action="use-armory"]').count(), 1);
