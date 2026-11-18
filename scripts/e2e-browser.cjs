@@ -137,13 +137,24 @@ async function main() {
       }))
     ];
     specialOwner.gold = 0;
+    // Deterministic opponent event: bot drafting may or may not have generated
+    // a turn entry before this fixture, so never depend on random bot order.
+    const notificationBot = special.players.find((player) => player.isBot);
+    assert.ok(notificationBot, 'mobile fixture needs a bot opponent');
+    const seedId = Number(special.activitySeq || 0) + 1;
+    special.activitySeq = seedId;
+    special.activityLog.push({
+      id: seedId, round: special.round, playerId: notificationBot.id,
+      playerName: notificationBot.name, isBot: true,
+      characterName: 'Kereskedő', messages: ['Bot körvégi próbaesemény.']
+    });
     rig.store.values.set(specialKey, JSON.stringify(special));
     await page.reload({ waitUntil: 'domcontentloaded' });
     await page.locator('button[data-action="build-framework"][data-card="browser_palace"]').waitFor();
     // Opponent actions deliberately appear as a modal and require acknowledgment
     // before the user can interact with the table.
     await page.locator('#activity-dialog').waitFor({ state: 'visible' });
-    assert.match(await page.locator('#activity-dialog').innerText(), /Botok lépései/);
+    assert.match(await page.locator('#activity-dialog').innerText(), /Bot körvégi próbaesemény/);
     await page.locator('#activity-ack').click();
     await page.locator('#activity-dialog').waitFor({ state: 'hidden' });
     await page.reload({ waitUntil: 'domcontentloaded' });
