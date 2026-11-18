@@ -870,7 +870,7 @@ function isRankEightProtected(session, owner) {
 
 function taxCollectorActive(session) {
   try {
-    return inUseCharacters(session.players.length, session.selectedCharacterIds)
+    return inUseCharacters(session.players.length, session.selectedCharacterIds, session.useNinthCharacter)
       .some((character) => character.id === 'tax-collector');
   } catch (_error) {
     return false;
@@ -1574,7 +1574,7 @@ function runBots(session) {
 }
 
 function inUseCharacterIds(session) {
-  return new Set(inUseCharacters(session.players.length, session.selectedCharacterIds).map((character) => character.id));
+  return new Set(inUseCharacters(session.players.length, session.selectedCharacterIds, session.useNinthCharacter).map((character) => character.id));
 }
 
 function targetableCharacterIds(session, actingCharacterId) {
