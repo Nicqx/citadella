@@ -1046,6 +1046,15 @@ function stopPolling() {
   polling = null;
 }
 
+// Android Chrome may suspend timers while the page is in the background.
+// Fetch missed opponent turns as soon as the tab becomes visible again.
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && auth?.code) void refresh();
+});
+window.addEventListener('pageshow', (event) => {
+  if (event.persisted && auth?.code) void refresh();
+});
+
 async function createSession(form) {
   const data = new FormData(form);
   const result = await api('/session', {
