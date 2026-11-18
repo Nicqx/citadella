@@ -140,6 +140,18 @@ async function main() {
     rig.store.values.set(specialKey, JSON.stringify(special));
     await page.reload({ waitUntil: 'domcontentloaded' });
     await page.locator('button[data-action="build-framework"][data-card="browser_palace"]').waitFor();
+    // Opponent actions deliberately appear as a modal and require acknowledgment
+    // before the user can interact with the table.
+    await page.locator('#activity-dialog').waitFor({ state: 'visible' });
+    assert.match(await page.locator('#activity-dialog').innerText(), /Botok lépései/);
+    await page.locator('#activity-ack').click();
+    await page.locator('#activity-dialog').waitFor({ state: 'hidden' });
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.locator('button[data-action="build-framework"][data-card="browser_palace"]').waitFor();
+    assert.equal(await page.locator('#activity-dialog').isVisible(), false,
+      'acknowledged opponent turn must not reopen on reload');
+    console.log('PASS: Chromium opponent activity modal acknowledges and stays closed on reload');
+
     assert.equal(await page.locator('button[data-action="build-necropolis-sacrifice"]').count(), 1);
     assert.equal(await page.locator('button[data-action="build-thieves-den"]').count(), 1);
     assert.equal(await page.locator('button[data-action="use-armory"]').count(), 1);
