@@ -225,6 +225,9 @@ function ensureSessionFields(session) {
   if (!Array.isArray(session.roundFaceUpCharacterIds)) session.roundFaceUpCharacterIds = [];
   if (!Array.isArray(session.botActionLog)) session.botActionLog = [];
   if (!Number.isInteger(session.botActionSeq)) session.botActionSeq = 0;
+  if (!Array.isArray(session.activityLog)) session.activityLog = [];
+  if (!Number.isInteger(session.activitySeq)) session.activitySeq = 0;
+  if (!Number.isInteger(session.gameEpoch)) session.gameEpoch = 0;
   if (!Array.isArray(session.selectedUniqueDistrictIds) || session.selectedUniqueDistrictIds.length !== 14) {
     session.selectedUniqueDistrictIds = [...DEFAULT_UNIQUE_DISTRICT_IDS];
   }
@@ -442,6 +445,8 @@ function stateView(session, actor, ttlSeconds) {
     humanCount: session.players.filter((player) => !player.isBot).length,
     botStrategies: Object.values(BOT_STRATEGIES).map(({ id, label, description }) => ({ id, label, description })),
     botActions: session.botActionLog.slice(-8),
+    activityLog: session.activityLog.slice(-100),
+    gameEpoch: session.gameEpoch,
     taxPool: Number(session.taxPool || 0),
     faceUpCharacters: (draft ? draft.faceUpIds : session.roundFaceUpCharacterIds).map(characterPublic).filter(Boolean),
     me: playerView(session, actor, actor),
@@ -687,6 +692,7 @@ function activateCurrentTurn(session) {
     } else {
       applyTurnStartEffects(session, current);
     }
+    session.turn.action.activitySnapshot = activitySnapshot(session);
     return;
   }
 
@@ -810,6 +816,7 @@ function endCurrentTurn(session) {
     }
   }
 
+  if (actor && !actor.isBot) logHumanTurn(session, actor, current, action);
   session.turn.index += 1;
   if (session.turn.index >= session.turn.order.length) completeRound(session);
   else activateCurrentTurn(session);
@@ -1052,6 +1059,70 @@ function botChooseCharacter(session, actor, options) {
   return botPick(ranked.filter((item) => item.score === bestScore).map((item) => item.characterId));
 }
 
+function appendActivity(session, actor, characterId, messages, isBot) {
+  const clean = messages.filter(Boolean);
+  if (!clean.length) return;
+  session.activitySeq += 1;
+  session.activityLog.push({
+    id: session.activitySeq,
+    round: session.round,
+    playerId: actor.id,
+    playerName: actor.name,
+    isBot: Boolean(isBot),
+    characterName: CHARACTER_MAP.get(characterId)?.name || null,
+    messages: clean
+  });
+  if (session.activityLog.length > 120) session.activityLog = session.activityLog.slice(-120);
+}
+
+function activitySnapshot(session) {
+  return session.players.map((player) => ({
+    id: player.id,
+    name: player.name,
+    gold: player.gold,
+    handCount: player.hand.length,
+    built: player.built.map((district) => ({ cardId: district.cardId, name: district.name }))
+  }));
+}
+
+function logHumanTurn(session, actor, current, action) {
+  const before = action.activitySnapshot;
+  if (!Array.isArray(before)) return;
+  const messages = [];
+  if (action.activityResource === 'gold') {
+    messages.push('Aranyat vett fel nyersanyagként.');
+  } else if (action.activityResource === 'cards') {
+    messages.push('Kerületlapokat húzott nyersanyagként.');
+  } else if (action.resourceGathered) {
+    messages.push('Nyersanyagot gyűjtött.');
+  }
+  if (action.incomeUsed) messages.push('Begyűjtötte a karakterének színbevételét.');
+  if (action.specialUsed) messages.push('Használta a karakter különleges képességét.');
+  if (action.destructionUsed) messages.push('Használta a kerületeket érintő karakterképességét.');
+  for (const districtId of Object.keys(action.districtUses || {})) {
+    if (action.districtUses[districtId]) messages.push('Használta egy egyedi kerület képességét.');
+  }
+  const after = activitySnapshot(session);
+  for (const player of after) {
+    const previous = before.find((entry) => entry.id === player.id);
+    if (!previous) continue;
+    const prefix = player.id === actor.id ? '' : player.name + ': ';
+    const oldIds = new Set(previous.built.map((district) => district.cardId));
+    const newIds = new Set(player.built.map((district) => district.cardId));
+    for (const district of player.built) {
+      if (!oldIds.has(district.cardId)) messages.push(prefix + 'Megépült vagy átkerült hozzá: ' + district.name + '.');
+    }
+    for (const district of previous.built) {
+      if (!newIds.has(district.cardId)) messages.push(prefix + 'Elveszített egy kerületet: ' + district.name + '.');
+    }
+    const goldDifference = player.gold - previous.gold;
+    if (goldDifference) messages.push(prefix + 'Aranyváltozás: ' + (goldDifference > 0 ? '+' : '') + goldDifference + '.');
+    const handDifference = player.handCount - previous.handCount;
+    if (handDifference) messages.push(prefix + 'Kézlapok számának változása: ' + (handDifference > 0 ? '+' : '') + handDifference + '.');
+  }
+  appendActivity(session, actor, current.characterId, messages.length ? messages : ['Befejezte a karakterkörét.'], false);
+}
+
 function addBotAction(session, actor, characterId, messages, phase = 'turn') {
   const cleanMessages = (Array.isArray(messages) ? messages : [messages]).filter(Boolean);
   if (!cleanMessages.length) return;
@@ -1068,6 +1139,7 @@ function addBotAction(session, actor, characterId, messages, phase = 'turn') {
     messages: cleanMessages
   });
   if (session.botActionLog.length > 12) session.botActionLog = session.botActionLog.slice(-12);
+  if (phase === 'turn') appendActivity(session, actor, characterId, cleanMessages, true);
 }
 
 function botGatherResource(session, actor, action, notes) {
@@ -1813,6 +1885,9 @@ api.post('/session/:code/start', async (req, res, next) => {
       session.round = 1;
       session.botActionLog = [];
       session.botActionSeq = 0;
+      session.activityLog = [];
+      session.activitySeq = 0;
+      session.gameEpoch = Number(session.gameEpoch || 0) + 1;
       session.firstCompletedPlayerId = null;
       session.finalRound = false;
       session.winnerPlayerId = null;
@@ -1898,6 +1973,7 @@ api.post('/session/:code/turn/resource', async (req, res, next) => {
       } else {
         throw httpError(400, 'invalid_resource_mode');
       }
+      action.activityResource = mode;
       afterResourceChoice(session);
       runBots(session);
       await saveSession(session);
