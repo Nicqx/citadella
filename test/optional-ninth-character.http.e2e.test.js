@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { DEFAULT_CHARACTER_IDS } = require('../game');
-const { openRig } = require('./support/http-e2e-rig');
+const { openRig, seedTurn, card } = require('./support/http-e2e-rig');
 
 for (const playerCount of [4, 5, 6, 7]) {
   for (const useNinthCharacter of [false, true]) {
@@ -129,3 +129,29 @@ test('NINTH ROLE HTTP: bot drafting uses optional nine-character deck with four 
     assert.ok(state.round >= 2, 'a botok befejezték az előző karakterkört');
   }
 });
+
+for (const useNinthCharacter of [false, true]) {
+  test('NINTH ROLE HTTP: rank-nine Tax Collector tax and Assassin targeting ' +
+    (useNinthCharacter ? 'active' : 'inactive') + ' with 4 players', async (t) => {
+    const h = await openRig(t, { players: 4 });
+    seedTurn(h, 'assassin', {
+      count: 4,
+      gold: 5,
+      ownCards: [card('tavern', 'trade', 1)],
+      extra: (session) => {
+        session.selectedCharacterIds[8] = 'tax-collector';
+        session.useNinthCharacter = useNinthCharacter;
+      }
+    });
+    await h.post('/turn/build', { cardId: 'fixture_tavern' }, 0, 201);
+    assert.equal((await h.get()).taxPool, useNinthCharacter ? 1 : 0);
+    const result = await h.post('/turn/ability', {
+      action: 'target-character', targetCharacterId: 'tax-collector'
+    }, 0, useNinthCharacter ? 200 : 400);
+    if (useNinthCharacter) {
+      assert.equal((await h.get()).roundEffects.assassinatedCharacterId, 'tax-collector');
+    } else {
+      assert.equal(result.error, 'invalid_character_target');
+    }
+  });
+}
