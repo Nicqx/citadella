@@ -75,7 +75,8 @@ const errors = {
   character_selection_count: 'Minden ranghoz pontosan egy karaktert válassz.',
   invalid_character_selection: 'Egy ranghoz nem megfelelő karakter lett kiválasztva.',
   emperor_not_allowed_two_players: 'A Császár 2 játékos esetén nem használható. Válassz Királyt vagy Patríciust a 4-es ranghoz.',
-  queen_not_allowed_under_five: 'A Királynő 5 játékos alatt nem használható. Három játékosnál a 9-es ranghoz Művészt vagy Adószedőt válassz.',
+  queen_not_allowed_under_five: 'A Királynő 5 játékos alatt nem használható. A 9-es ranghoz válassz Művészt vagy Adószedőt.',
+  invalid_character_count: 'A 8 vagy 9 karakteres szabályt válaszd.',
   discard_character_required: 'Két játékosnál ezen a lépésen egy megtartott és egy külön eldobott karaktert is választanod kell.',
   district_cannot_be_built: 'Ezt a kerületet nem lehet megépíteni.',
   monument_too_late: 'Az Emlékmű már nem építhető, ha legalább öt kerületed van.',
@@ -275,17 +276,17 @@ function characterSelector() {
     const options = catalog
       .filter((character) => character.rank === rank)
       .filter((character) => !(playerCount === 2 && rank === 4 && character.id === 'emperor'))
-      .filter((character) => !(playerCount === 3 && rank === 9 && character.id === 'queen'))
+      .filter((character) => !(playerCount === 3 || playerCount === 4) || rank !== 9 || character.id !== 'queen')
       .map((character) => `<option value="${character.id}" ${selected[offset] === character.id ? 'selected' : ''}>${escapeHtml(character.name)}</option>`)
       .join('');
 
     let activeNote = '';
     if (rank === 4 && playerCount === 2) {
       activeNote = '<span class="muted small-text">Császár 2 főnél nem használható</span>';
-    } else if (rank === 9 && playerCount === 3) {
-      activeNote = '<span class="muted small-text">3 főnél kötelező · Királynő nem használható</span>';
+    } else if (rank === 9 && (playerCount === 3 || playerCount === 4)) {
+      activeNote = `<span class="muted small-text">${playerCount === 3 ? 'kötelező' : 'választható'} · Királynő nem használható</span>`;
     } else if (rank === 9) {
-      activeNote = '<span class="muted small-text">3 vagy 8 játékosnál kerül biztosan játékba</span>';
+      activeNote = '<span class="muted small-text">4–7 főnél választható, 8 főnél kötelező</span>';
     }
 
     return `<label class="character-config-row"><span><strong>${rank}. rang</strong>${activeNote}</span><select name="characterId" data-rank="${rank}">${options}</select></label>`;
@@ -297,9 +298,18 @@ function characterSelector() {
       ? 'Három játékosnál az 1–9. rang mind játékban van, és mindenki két karaktert választ. A Királynő nem használható.'
       : playerCount === 8
         ? 'Nyolc játékosnál az 1–9. rang kerül játékba.'
-        : '4–7 játékosnál az app az 1–8. rangot használja.';
+        : '4–7 játékosnál 8 vagy 9 karakterrel is játszhattok. A szabálykönyvnek megfelelően a félretett lapok száma automatikusan változik.';
 
-  return `<form id="character-config-form" class="stack"><div class="section-head"><div><p class="eyebrow">Karakterpakli</p><h3>Karakterek helyettesítése</h3></div><span class="badge">27 → 8/9</span></div><p class="muted">${modeHelp}</p><div class="character-config-grid">${rows}</div><div class="actions"><button type="submit">Karakterkészlet mentése</button><button type="button" class="secondary" data-action="default-characters">Alapkarakterek</button></div></form>`;
+  const optionalNinth = playerCount >= 4 && playerCount <= 7
+    ? `<label class="character-config-row"><span><strong>Karakterek száma</strong><span class="muted small-text">4–7 főnél a 9. karakter választható</span></span><select id="character-count" name="characterCount"><option value="8" ${!state.useNinthCharacter ? 'selected' : ''}>8 karakter (alap)</option><option value="9" ${state.useNinthCharacter ? 'selected' : ''}>9 karakter (opcionális)</option></select></label>`
+    : '';
+  const activeCount = playerCount >= 2 ? state.activeCharacterCount : 8;
+  return `<form id="character-config-form" class="stack"><div class="section-head"><div><p class="eyebrow">Karakterpakli</p><h3>Karakterek helyettesítése</h3></div><span class="badge">27 → ${activeCount}</span></div><p class="muted">${modeHelp}</p>${optionalNinth}<div class="character-config-grid">${rows}</div><div class="actions"><button type="submit">Karakterkészlet mentése</button><button type="button" class="secondary" data-action="default-characters">Alapkarakterek</button></div></form>`;
+}
+
+function currentUseNinthCharacter() {
+  return state.players.length >= 4 && state.players.length <= 7 &&
+    document.getElementById('character-count')?.value === '9';
 }
 
 function currentCharacterSelectionIds() {
@@ -331,7 +341,7 @@ function renderLobby() {
 
   const hostSettings = state.isHost
     ? `<section class="panel stack lobby-settings"><h2>Játékbeállítások</h2><form id="bot-form" class="inline-form"><label>Szimulált játékosok<select name="count">${botOptions}</select></label><button type="submit">Botok beállítása</button></form><p class="muted">Minden botnak külön stratégia választható a játékoslistában. Az alkalmazkodó bot az aktuális kézre és városra reagál; a fókuszált botok a saját kerülettípusukat és hozzá illő karaktert keresik.</p>${characterSelector()}${uniqueDistrictSelector()}</section>`
-    : `<section class="panel stack lobby-settings"><h2>Játékbeállítások</h2><p><strong>Szimulált játékosok:</strong> ${state.botCount}</p><div><p class="eyebrow">Karakterkészlet</p><div class="face-up">${(state.selectedCharacterIds || []).map((idValue) => state.characterCatalog.find((character) => character.id === idValue)).filter(Boolean).map((character) => `<span class="badge">${character.rank}. ${escapeHtml(character.name)}</span>`).join('')}</div></div><div><p class="eyebrow">A kiválasztott 14 egyedi kerület</p><div class="face-up">${selectedNames}</div></div><p class="muted">Ezeket a házigazda módosíthatja indulás előtt.</p></section>`;
+    : `<section class="panel stack lobby-settings"><h2>Játékbeállítások</h2><p><strong>Szimulált játékosok:</strong> ${state.botCount}</p><p><strong>Játékban lévő karakterek:</strong> ${state.activeCharacterCount}</p><div><p class="eyebrow">Karakterkészlet</p><div class="face-up">${(state.selectedCharacterIds || []).map((idValue) => state.characterCatalog.find((character) => character.id === idValue)).filter(Boolean).map((character) => `<span class="badge">${character.rank}. ${escapeHtml(character.name)}</span>`).join('')}</div></div><div><p class="eyebrow">A kiválasztott 14 egyedi kerület</p><div class="face-up">${selectedNames}</div></div><p class="muted">Ezeket a házigazda módosíthatja indulás előtt.</p></section>`;
 
   const startDisabled = !(countOk && uniqueOk);
   const startNotice = !countOk
@@ -914,7 +924,8 @@ function renderHelp() {
         <p>A játék előtt rangonként egy karakter választható a három lehetséges változat közül. 2 játékosnál az 1–8. rang kerül játékba, és a <strong>Császár nem használható</strong>. 3 játékosnál az 1–9. rang mind játékban van, de a <strong>Királynő nem használható</strong>.</p>
         <p><strong>Két játékos:</strong> egy karakter titkos félretételével indul a draft. A koronás játékos kiválasztja első karakterét; ezután felváltva minden választási lépésben egy karaktert megtartotok és egy másikat képpel lefelé eldobtok, amíg mindkettőtöknek két karaktere nem lesz.</p>
         <p><strong>Három játékos:</strong> egy karakter titkos félretételével indul a draft. Először mindhárom játékos választ egy karaktert, majd az app véletlenszerűen eldob egyet az öt megmaradt lapból. Ezután ugyanebben a sorrendben mindenki választ egy második karaktert, az utolsó megmaradt lap pedig titkos dobás lesz.</p>
-        <p><strong>4–8 játékos:</strong> a megszokott karakterválasztási szabályok érvényesek; a 4-es rangú karakter nem kerülhet nyíltan félretett lapként az asztalra.</p>
+        <p><strong>4–7 játékos:</strong> a házigazda 8 vagy 9 karakteres változatot választhat. Kilenc karakter esetén a nyíltan félretett lapok száma 4/5/6/7 főnél rendre 3/2/1/0, nyolc karakterrel 2/1/0/0. Mindig van egy kezdeti titkos félretétel. A Királynő öt fő alatt nem választható.</p>
+        <p><strong>7–8 játékos:</strong> az utolsó választó akkor választhat a képpel lefelé félretett karakterből is, ha hét fővel nyolc karakter, vagy nyolc fővel kilenc karakter van játékban. A 4-es rangú karakter soha nem kerülhet nyíltan félretett lapként az asztalra.</p>
       </div>
     </details>
     <details class="rules-section">
@@ -1035,7 +1046,9 @@ app.addEventListener('submit', async (event) => {
       if (characterIds.length !== 9) {
         throw Object.assign(new Error('character_selection_count'), { code: 'character_selection_count' });
       }
-      await post(`/session/${state.code}/config/characters`, { characterIds });
+      await post(`/session/${state.code}/config/characters`, {
+        characterIds, useNinthCharacter: currentUseNinthCharacter()
+      });
     } else if (form.id === 'district-config-form') {
       const data = new FormData(form);
       const districtIds = data.getAll('districtId').map(String);
@@ -1093,8 +1106,11 @@ app.addEventListener('click', async (event) => {
         const characterIds = currentCharacterSelectionIds();
         const savedCharacters = [...(state.selectedCharacterIds || [])].join('|');
         const currentCharacters = characterIds.join('|');
-        if (savedCharacters !== currentCharacters) {
-          await post(`/session/${state.code}/config/characters`, { characterIds });
+        const useNinthCharacter = currentUseNinthCharacter();
+        if (savedCharacters !== currentCharacters ||
+          (state.players.length >= 4 && state.players.length <= 7 &&
+           useNinthCharacter !== state.useNinthCharacter)) {
+          await post(`/session/${state.code}/config/characters`, { characterIds, useNinthCharacter });
         }
       }
       const form = document.getElementById('district-config-form');
