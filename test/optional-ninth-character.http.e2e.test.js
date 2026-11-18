@@ -45,7 +45,9 @@ for (const playerCount of [4, 5, 6, 7]) {
         if (step !== playerCount - 1 || !(playerCount === 7 && !useNinthCharacter)) {
           assert.equal(options.includes(secret), false, 'face-down role must remain private');
         }
-        assert.equal(options.length, 2 + (playerCount - step - 1));
+        const availableCount = h.raw().draft.available.length;
+        assert.equal(options.length, availableCount +
+          (step === playerCount - 1 && availableCount === 1 ? 1 : 0));
         const picked = options[0];
         assert.equal(seen.has(picked), false);
         seen.add(picked);
