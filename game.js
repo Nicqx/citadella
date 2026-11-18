@@ -185,25 +185,41 @@ function completionTarget(playerCount) {
   return Number(playerCount || 0) > 0 && Number(playerCount) <= 3 ? 8 : 7;
 }
 
-function validateCharactersForPlayerCount(playerCount, selectedCharacterIds = DEFAULT_CHARACTER_IDS) {
-  const selected = validateCharacterSelection(selectedCharacterIds);
+// According to the 2016 rulebook, the ninth rank is mandatory with 3/8
+// players and optional with 4-7. The Queen is unavailable below 5 players.
+function characterCountForPlayers(playerCount, useNinthCharacter = false) {
   if (playerCount < 2 || playerCount > 8) throw new Error('supported_player_count');
+  if (playerCount === 3 || playerCount === 8) return 9;
+  return playerCount >= 4 && playerCount <= 7 && useNinthCharacter === true ? 9 : 8;
+}
+
+function validateCharactersForPlayerCount(
+  playerCount, selectedCharacterIds = DEFAULT_CHARACTER_IDS, useNinthCharacter = false
+) {
+  const selected = validateCharacterSelection(selectedCharacterIds);
+  const characterCount = characterCountForPlayers(playerCount, useNinthCharacter);
   if (playerCount === 2 && selected[3] === 'emperor') throw new Error('emperor_not_allowed_two_players');
-  if (playerCount === 3 && selected[8] === 'queen') throw new Error('queen_not_allowed_under_five');
+  // Rank nine can remain preconfigured but inactive in a 4-player eight-character game.
+  if (playerCount < 5 && characterCount === 9 && selected[8] === 'queen') {
+    throw new Error('queen_not_allowed_under_five');
+  }
   return selected;
 }
 
-function inUseCharacters(playerCount, selectedCharacterIds = DEFAULT_CHARACTER_IDS) {
-  const selected = validateCharactersForPlayerCount(playerCount, selectedCharacterIds);
-  const maxRank = playerCount === 3 || playerCount === 8 ? 9 : 8;
-  return selected.slice(0, maxRank).map((id) => CHARACTER_MAP.get(id));
+function inUseCharacters(
+  playerCount, selectedCharacterIds = DEFAULT_CHARACTER_IDS, useNinthCharacter = false
+) {
+  const selected = validateCharactersForPlayerCount(playerCount, selectedCharacterIds, useNinthCharacter);
+  return selected.slice(0, characterCountForPlayers(playerCount, useNinthCharacter))
+    .map((id) => CHARACTER_MAP.get(id));
 }
 
-function draftDiscardCounts(playerCount) {
-  if (playerCount === 4) return { faceUp: 2, faceDown: 1 };
-  if (playerCount === 5) return { faceUp: 1, faceDown: 1 };
-  if (playerCount === 6 || playerCount === 7 || playerCount === 8) return { faceUp: 0, faceDown: 1 };
-  throw new Error('supported_player_count');
+function draftDiscardCounts(playerCount, characterCount = playerCount === 8 ? 9 : 8) {
+  if (playerCount < 4 || playerCount > 8) throw new Error('supported_player_count');
+  if (characterCount !== 8 && characterCount !== 9) throw new Error('invalid_character_count');
+  // Face-up discards: four players = 2/3, five = 1/2, six = 0/1,
+  // seven = 0/0, eight = 0/0 for the 8-/9-character decks respectively.
+  return { faceUp: Math.max(0, characterCount - playerCount - 2), faceDown: 1 };
 }
 
 function seatOrderFrom(players, firstPlayerId) {
@@ -226,9 +242,11 @@ function initialFaceDown(pool) {
   return faceDownId;
 }
 
-function createDraft(players, crownPlayerId, selectedCharacterIds = DEFAULT_CHARACTER_IDS) {
+function createDraft(
+  players, crownPlayerId, selectedCharacterIds = DEFAULT_CHARACTER_IDS, useNinthCharacter = false
+) {
   const playerCount = players.length;
-  const characters = inUseCharacters(playerCount, selectedCharacterIds);
+  const characters = inUseCharacters(playerCount, selectedCharacterIds, useNinthCharacter);
   const seatOrder = seatOrderFrom(players, crownPlayerId);
   let pool = shuffle(characters.map((character) => character.id));
   const faceDownId = initialFaceDown(pool);
@@ -261,7 +279,7 @@ function createDraft(players, crownPlayerId, selectedCharacterIds = DEFAULT_CHAR
     };
   }
 
-  const counts = draftDiscardCounts(playerCount);
+  const counts = draftDiscardCounts(playerCount, characters.length);
   const faceUpIds = [];
   for (let i = 0; i < counts.faceUp; i += 1) {
     const eligible = pool.filter((id) => CHARACTER_MAP.get(id).rank !== 4);
@@ -286,7 +304,11 @@ function createDraft(players, crownPlayerId, selectedCharacterIds = DEFAULT_CHAR
 function draftOptions(draft) {
   if (draft.mode === 'two-player' || draft.mode === 'three-player') return [...draft.available];
   const isLast = draft.index === draft.order.length - 1;
-  if (isLast && draft.order.length >= 7) {
+  // Only a last drafter facing one remaining available card may pick up
+  // the original face-down discard (7 players / 8 roles; 8 / 9 roles).
+  // With 7 players and 9 roles two available cards remain here, so
+  // exposing the secret face-down card would break the official rule.
+  if (isLast && draft.available.length === 1) {
     return [...draft.available, draft.faceDownId].filter(Boolean);
   }
   return [...draft.available];
@@ -461,6 +483,7 @@ module.exports = {
   DEFAULT_CHARACTER_IDS,
   validateCharacterSelection,
   validateCharactersForPlayerCount,
+  characterCountForPlayers,
   completionTarget,
   inUseCharacters,
   draftDiscardCounts,
