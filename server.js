@@ -1097,7 +1097,19 @@ function logHumanTurn(session, actor, current, action) {
     messages.push('Nyersanyagot gyűjtött.');
   }
   if (action.incomeUsed) messages.push('Begyűjtötte a karakterének színbevételét.');
-  if (action.specialUsed) messages.push('Használta a karakter különleges képességét.');
+  if (action.specialUsed && current.characterId === 'assassin') {
+    const target = ensureRoundEffects(session).assassinatedCharacterId;
+    messages.push(target
+      ? 'Orgyilkosként ezt a karaktert jelölte ki: ' + (CHARACTER_MAP.get(target)?.name || target) + '.'
+      : 'Használta az Orgyilkos képességét.');
+  } else if (action.specialUsed && current.characterId === 'thief') {
+    const target = ensureRoundEffects(session).thiefTargetCharacterId;
+    messages.push(target
+      ? 'Tolvajként ezt a karaktert jelölte ki: ' + (CHARACTER_MAP.get(target)?.name || target) + '.'
+      : 'Használta a Tolvaj képességét.');
+  } else if (action.specialUsed) {
+    messages.push('Használta a karakter különleges képességét.');
+  }
   if (action.destructionUsed) messages.push('Használta a kerületeket érintő karakterképességét.');
   for (const districtId of Object.keys(action.districtUses || {})) {
     if (action.districtUses[districtId]) messages.push('Használta egy egyedi kerület képességét.');
@@ -2752,7 +2764,9 @@ app.get('/livez', (_req, res) => res.json({ ok: true }));
 app.use(BASE_PATH || '/', express.static(path.join(__dirname, 'public'), {
   index: false,
   setHeaders(res, filePath) {
-    if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-store');
+    // Unversioned browser assets must always be revalidated. A stale app.js
+    // can silently hide the opponent-turn dialog on mobile after deployment.
+    if (/\\.(?:html|js|css)$/.test(filePath)) res.setHeader('Cache-Control', 'no-store');
     else res.setHeader('Cache-Control', 'public, max-age=3600');
   }
 }));
