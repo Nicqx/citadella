@@ -152,6 +152,38 @@ async function main() {
       'acknowledged opponent turn must not reopen on reload');
     console.log('PASS: Chromium opponent activity modal acknowledges and stays closed on reload');
 
+    // Two new bot actions are combined into one unacknowledged popup;
+    // a local player's event must never appear as an opponent action.
+    const notificationFixture = JSON.parse(rig.store.values.get(specialKey));
+    const bot = notificationFixture.players.find((player) => player.isBot);
+    assert.ok(bot, 'expected bot opponent in mobile fixture');
+    const firstActivityId = Number(notificationFixture.activitySeq || 0) + 1;
+    notificationFixture.activitySeq = firstActivityId + 2;
+    notificationFixture.activityLog.push(
+      { id: firstActivityId, round: notificationFixture.round, playerId: bot.id,
+        playerName: bot.name, isBot: true, characterName: 'Tolvaj',
+        messages: ['Első botlépés próba.'] },
+      { id: firstActivityId + 1, round: notificationFixture.round, playerId: bot.id,
+        playerName: bot.name, isBot: true, characterName: 'Király',
+        messages: ['Második botlépés próba.'] },
+      { id: firstActivityId + 2, round: notificationFixture.round,
+        playerId: specialOwner.id, playerName: specialOwner.name,
+        isBot: false, characterName: 'Mágus',
+        messages: ['Saját lépés, ezt nem mutathatja.'] }
+    );
+    rig.store.values.set(specialKey, JSON.stringify(notificationFixture));
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.locator('#activity-dialog').waitFor({ state: 'visible' });
+    assert.equal(await page.locator('#activity-dialog .activity-group').count(), 1);
+    assert.equal(await page.locator('#activity-dialog .activity-entry').count(), 2);
+    const combinedSummary = await page.locator('#activity-dialog').innerText();
+    assert.match(combinedSummary, /Első botlépés próba/);
+    assert.match(combinedSummary, /Második botlépés próba/);
+    assert.doesNotMatch(combinedSummary, /Saját lépés, ezt nem mutathatja/);
+    await page.locator('#activity-ack').click();
+    await page.locator('#activity-dialog').waitFor({ state: 'hidden' });
+    console.log('PASS: Chromium combines consecutive bot actions and filters own actions');
+
     assert.equal(await page.locator('button[data-action="build-necropolis-sacrifice"]').count(), 1);
     assert.equal(await page.locator('button[data-action="build-thieves-den"]').count(), 1);
     assert.equal(await page.locator('button[data-action="use-armory"]').count(), 1);
