@@ -113,6 +113,11 @@ async function main() {
     assert.equal(await watcher.locator('#activity-dialog .activity-group').count(), 1);
     console.log('PASS: second human ends real turn, observer sees dialog');
 
+    // The third player also receives the second player's notification and
+    // must acknowledge it before clicking any gameplay control.
+    await third.locator('#activity-dialog').waitFor({ state: 'visible' });
+    await third.locator('#activity-ack').click();
+    await third.locator('#activity-dialog').waitFor({ state: 'hidden' });
     await third.locator('button[data-action="take-resource"][data-mode="gold"]').waitFor();
     await third.locator('button[data-action="take-resource"][data-mode="gold"]').click();
     await third.locator('button[data-action="end-turn"]').click();
