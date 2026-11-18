@@ -13,8 +13,9 @@ Mobilbarát, Redis-alapú Citadella játékszoba. Az alkalmazás kezeli a titkos
 - A modern kiadás 27 karaktere mind elérhető: minden 1–9. ranghoz három lehetséges karakter tartozik, amelyek közül a házigazda rangonként egyet választ.
 - 2 főnél az 1–8. rang szerepel, minden játékos két karaktert kap; a Császár nem használható.
 - 3 főnél az 1–9. rang mind játékban van, minden játékos két karaktert kap; a Királynő nem használható.
-- 4–7 főnél a kiválasztott 1–8. rangú karakterek szerepelnek; 8 főnél a kiválasztott 9. rangú karakter is bekerül.
+- 4–7 főnél a házigazda választhat 8 vagy 9 karakteres játékot; 3 és 8 főnél a 9. rang kötelező, 2 főnél csak az első nyolc rang használható. A Királynő nem használható öt játékos alatt.
 - Az alternatív karakterek eltérő építési korlátai és interaktív képességei is részei a digitális körvezetésnek.
+- A karakterpakli mérete befolyásolja a titkos karakterválasztást: 4/5/6/7 főnél a 8 karakteres játékban 2/1/0/0, a 9 karakteresben 3/2/1/0 karakter kerül képpel felfelé félretételre. Egy további lap titkosan félrekerül. Az utolsó választó csak 7 fő + 8 karakter vagy 8 fő + 9 karakter esetén választhat a kezdeti titkos félretett karakterből is.
 - A kiválasztási fázis kezeli a hivatalos 2 fős „megtart + titkos dobás” draftot, a 3 fős kétkörös draftot, valamint a 4–8 fős nyílt/rejtett félretett karaktereket és a 7–8 játékosra vonatkozó utolsó választó szabályát.
 - A karaktered és a képességed a saját telefonodon végig látszik; 2–3 főnél a saját két karaktered látható, a többiek karakterei csak a felfedésük után válnak nyilvánossá.
 - A `?` gomb teljes játékmeneti segédletet mutat: cél, előkészítés, karakterválasztás, kör menete, pontozás, karakterek és az egyedi kerületek hatásai.
