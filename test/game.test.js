@@ -353,3 +353,92 @@ test('two and three player cities complete at eight districts, not seven', () =>
   };
   assert.equal(scorePlayer(eightDistricts, twoPlayerSession).completionBonus, 4);
 });
+
+test('official 4–7-player optional ninth character: 8 remains the default', () => {
+  const { characterCountForPlayers } = require('../game');
+  for (const count of [4, 5, 6, 7]) {
+    assert.equal(characterCountForPlayers(count), 8);
+    assert.equal(characterCountForPlayers(count, true), 9);
+    assert.equal(inUseCharacters(count).length, 8);
+  }
+  for (const count of [3, 8]) {
+    assert.equal(characterCountForPlayers(count), 9);
+    assert.equal(characterCountForPlayers(count, false), 9);
+  }
+  assert.equal(characterCountForPlayers(2, true), 8);
+  assert.throws(() => characterCountForPlayers(9), /supported_player_count/);
+});
+
+test('official 9-character draft face-up counts for 4–8 players', () => {
+  const expected = new Map([[4, 3], [5, 2], [6, 1], [7, 0], [8, 0]]);
+  const options = [...DEFAULT_CHARACTER_IDS];
+  options[8] = 'artist';
+  for (const [count, faceUp] of expected) {
+    assert.deepEqual(draftDiscardCounts(count, 9), { faceUp, faceDown: 1 });
+    const draft = createDraft(players(count), 'p0', options, true);
+    assert.equal(draft.faceUpIds.length, faceUp);
+    assert.equal(draft.faceUpIds.includes(options[3]), false);
+    assert.equal(draft.order.length, count);
+    assert.ok(draft.faceDownId);
+  }
+  for (const [count, faceUp] of [[4, 2], [5, 1], [6, 0], [7, 0]]) {
+    assert.deepEqual(draftDiscardCounts(count, 8), { faceUp, faceDown: 1 });
+  }
+});
+
+test('4–7 players with 9 characters cannot inspect the secret initial discard', () => {
+  const options = [...DEFAULT_CHARACTER_IDS];
+  options[8] = 'artist';
+  for (const count of [4, 5, 6, 7]) {
+    const draft = createDraft(players(count), 'p0', options, true);
+    const hidden = draft.faceDownId;
+    for (let index = 0; index < count - 1; index++) {
+      const playerId = draft.order[draft.index];
+      const choices = draftOptions(draft);
+      assert.equal(choices.includes(hidden), false);
+      assert.equal(chooseCharacter(draft, playerId, choices[0]), false);
+    }
+    assert.equal(draft.available.length, 2);
+    const finalOptions = draftOptions(draft);
+    assert.equal(finalOptions.length, 2);
+    assert.equal(finalOptions.includes(hidden), false,
+      'face-down character cannot be offered in 7-player nine-role game');
+    assert.equal(chooseCharacter(draft, draft.order[draft.index], finalOptions[0]), true);
+    assert.equal(draft.finalDiscardId, finalOptions[1]);
+    assert.equal(draft.faceDownId, hidden);
+    assert.equal(new Set(Object.values(draft.choices).flat()).size, count);
+  }
+});
+
+test('seven players with eight roles and eight players with nine roles may select the face-down discard', () => {
+  const options = [...DEFAULT_CHARACTER_IDS];
+  options[8] = 'artist';
+  for (const [count, useNinth] of [[7, false], [8, true]]) {
+    const draft = createDraft(players(count), 'p0', options, useNinth);
+    for (let i = 0; i < count - 1; i++) {
+      assert.equal(chooseCharacter(draft, draft.order[draft.index], draftOptions(draft)[0]), false);
+    }
+    const hidden = draft.faceDownId;
+    assert.equal(draft.available.length, 1);
+    assert.ok(draftOptions(draft).includes(hidden));
+    assert.equal(chooseCharacter(draft, draft.order[draft.index], hidden), true);
+    assert.equal(draft.finalDiscardId !== null, true);
+    assert.equal(draft.faceDownId, null);
+  }
+});
+
+test('four players may use ninth-rank Artist/Tax Collector but not Queen', () => {
+  const options = [...DEFAULT_CHARACTER_IDS];
+  assert.equal(inUseCharacters(4, options).length, 8,
+    'existing 8-role games keep inactive Queen in config');
+  assert.throws(
+    () => validateCharactersForPlayerCount(4, options, true),
+    /queen_not_allowed_under_five/
+  );
+  for (const id of ['artist', 'tax-collector']) {
+    options[8] = id;
+    assert.equal(inUseCharacters(4, options, true).at(-1).id, id);
+  }
+  options[8] = 'queen';
+  assert.equal(inUseCharacters(5, options, true).at(-1).id, 'queen');
+});

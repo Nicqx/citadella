@@ -202,6 +202,38 @@ async function main() {
     assert.deepEqual(errors3, []);
     await desktop.close();
     console.log('PASS: Chromium desktop 3-player variant restriction, bot draft and 2/2 roles');
+
+    // 4-player 9-character optional setup, including browser -> API ->
+    // persisted draft. Rank nine must not offer Queen below five players.
+    const four = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    const page4 = await four.newPage();
+    page4.origin = rig.origin;
+    const errors4 = [];
+    page4.on('pageerror', (error) => errors4.push(error.message));
+    await room(page4, 'Browser E2E four players nine roles', 3);
+    assert.equal(await page4.locator('#character-count').inputValue(), '8');
+    assert.equal(
+      await page4.locator('#character-config-form select[data-rank="9"] option[value="queen"]').count(),
+      0, 'Queen cannot be chosen in 4-player games'
+    );
+    await page4.locator('#character-count').selectOption('9');
+    await page4.locator('#start-game-button').click();
+    await page4.locator('.draft-grid .character-option').first().waitFor();
+    const fourCode = page4.url().split('/').filter(Boolean).at(-1);
+    const fourKey = 'citadella:session:' + fourCode;
+    const fourDraft = JSON.parse(rig.store.values.get(fourKey));
+    assert.equal(fourDraft.useNinthCharacter, true);
+    assert.equal(fourDraft.draft.faceUpIds.length, 3);
+    assert.notEqual(fourDraft.selectedCharacterIds[8], 'queen');
+    assert.equal(await page4.locator('.draft-grid .character-option').count(), 5);
+    // Browser coverage is deliberately restricted to the real lobby and
+    // first private draft screen. Full draft / bots are tested via HTTP:
+    // bot Assassin can legitimately eliminate the human before the next
+    // UI refresh, instantly advancing to the following draft.
+    assert.equal(fourDraft.players.length, 4);
+    assert.deepEqual(errors4, []);
+    await four.close();
+    console.log('PASS: Chromium desktop 4-player optional ninth character and private draft');
   } finally {
     if (browser) await browser.close();
     await new Promise((resolve, reject) =>

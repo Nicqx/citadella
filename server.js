@@ -11,6 +11,7 @@ const {
   DEFAULT_CHARACTER_IDS,
   validateCharacterSelection,
   validateCharactersForPlayerCount,
+  characterCountForPlayers,
   completionTarget,
   inUseCharacters,
   createDraft,
@@ -234,6 +235,7 @@ function ensureSessionFields(session) {
   }
   if (!Number.isInteger(session.taxPool)) session.taxPool = Number(session.taxPool || 0);
   if (!Array.isArray(session.finalRevealedCharacterIds)) session.finalRevealedCharacterIds = [];
+  if (typeof session.useNinthCharacter !== 'boolean') session.useNinthCharacter = false;
   if (!session.theater || !Array.isArray(session.theater.order)) session.theater = null;
   ensureRoundEffects(session);
   return session;
@@ -391,10 +393,10 @@ function stateView(session, actor, ttlSeconds) {
   let inGameCharacters;
   try {
     inGameCharacters = session.players.length >= 2
-      ? inUseCharacters(session.players.length, session.selectedCharacterIds)
+      ? inUseCharacters(session.players.length, session.selectedCharacterIds, session.useNinthCharacter)
       : session.selectedCharacterIds.slice(0, 8).map((idValue) => CHARACTER_MAP.get(idValue));
   } catch (_error) {
-    inGameCharacters = session.selectedCharacterIds.slice(0, session.players.length === 3 ? 9 : 8)
+    inGameCharacters = session.selectedCharacterIds.slice(0, session.players.length >= 2 ? characterCountForPlayers(session.players.length, session.useNinthCharacter) : 8)
       .map((idValue) => CHARACTER_MAP.get(idValue));
   }
   const characters = inGameCharacters.filter(Boolean).map((character) => characterPublic(character.id));
@@ -425,6 +427,9 @@ function stateView(session, actor, ttlSeconds) {
     selectedUniqueDistrictIds: [...session.selectedUniqueDistrictIds],
     defaultUniqueDistrictIds: [...DEFAULT_UNIQUE_DISTRICT_IDS],
     selectedCharacterIds: [...session.selectedCharacterIds],
+    useNinthCharacter: session.useNinthCharacter,
+    activeCharacterCount: session.players.length >= 2
+      ? characterCountForPlayers(session.players.length, session.useNinthCharacter) : 8,
     defaultCharacterIds: [...DEFAULT_CHARACTER_IDS],
     characterCatalog: CHARACTERS.map((character) => characterPublic(character.id)),
     uniqueDistrictCatalog: UNIQUE_DISTRICTS.map((district) => ({
@@ -501,7 +506,7 @@ function prepareDraft(session) {
     player.characterId = null;
   });
   session.roundFaceUpCharacterIds = [];
-  session.draft = createDraft(sortedPlayers(session), session.crownPlayerId, session.selectedCharacterIds);
+  session.draft = createDraft(sortedPlayers(session), session.crownPlayerId, session.selectedCharacterIds, session.useNinthCharacter);
   session.turn = null;
   session.theater = null;
   session.phase = 'draft';
@@ -865,7 +870,7 @@ function isRankEightProtected(session, owner) {
 
 function taxCollectorActive(session) {
   try {
-    return inUseCharacters(session.players.length, session.selectedCharacterIds)
+    return inUseCharacters(session.players.length, session.selectedCharacterIds, session.useNinthCharacter)
       .some((character) => character.id === 'tax-collector');
   } catch (_error) {
     return false;
@@ -1569,7 +1574,7 @@ function runBots(session) {
 }
 
 function inUseCharacterIds(session) {
-  return new Set(inUseCharacters(session.players.length, session.selectedCharacterIds).map((character) => character.id));
+  return new Set(inUseCharacters(session.players.length, session.selectedCharacterIds, session.useNinthCharacter).map((character) => character.id));
 }
 
 function targetableCharacterIds(session, actingCharacterId) {
@@ -1618,6 +1623,7 @@ api.post('/session', async (req, res, next) => {
       players: [host],
       selectedUniqueDistrictIds: [...DEFAULT_UNIQUE_DISTRICT_IDS],
       selectedCharacterIds: [...DEFAULT_CHARACTER_IDS],
+      useNinthCharacter: false,
       taxPool: 0,
       districtDeck: [],
       draft: null,
@@ -1748,13 +1754,20 @@ api.post('/session/:code/config/characters', async (req, res, next) => {
       const actor = authPlayer(session, req);
       requireHost(session, actor);
       if (session.phase !== 'lobby') throw httpError(409, 'lobby_only');
+      const useNinthCharacter = req.body.useNinthCharacter === undefined
+        ? session.useNinthCharacter
+        : req.body.useNinthCharacter;
+      if (typeof useNinthCharacter !== 'boolean') throw httpError(400, 'invalid_character_count');
+      let selected;
       try {
-        session.selectedCharacterIds = session.players.length >= 2
-          ? validateCharactersForPlayerCount(session.players.length, req.body.characterIds)
+        selected = session.players.length >= 2
+          ? validateCharactersForPlayerCount(session.players.length, req.body.characterIds, useNinthCharacter)
           : validateCharacterSelection(req.body.characterIds);
       } catch (error) {
         throw httpError(400, error.message);
       }
+      session.selectedCharacterIds = selected;
+      session.useNinthCharacter = useNinthCharacter;
       await saveSession(session);
     });
     res.json({ ok: true });
@@ -1787,7 +1800,8 @@ api.post('/session/:code/start', async (req, res, next) => {
       try {
         session.selectedCharacterIds = validateCharactersForPlayerCount(
           session.players.length,
-          session.selectedCharacterIds
+          session.selectedCharacterIds,
+          session.useNinthCharacter
         );
       } catch (error) {
         throw httpError(400, error.message);
