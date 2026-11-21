@@ -1062,6 +1062,14 @@ function botChooseCharacter(session, actor, options) {
 function appendActivity(session, actor, characterId, messages, isBot) {
   const clean = messages.filter(Boolean);
   if (!clean.length) return;
+  // Legacy sessions and direct bot runners may bypass loadSession's defaults.
+  // Keep activity logging safe without changing their gameplay state.
+  if (!Array.isArray(session.activityLog)) session.activityLog = [];
+  if (!Number.isInteger(session.activitySeq)) {
+    session.activitySeq = session.activityLog.reduce(
+      (max, entry) => Math.max(max, Number(entry.id) || 0), 0
+    );
+  }
   session.activitySeq += 1;
   session.activityLog.push({
     id: session.activitySeq,
